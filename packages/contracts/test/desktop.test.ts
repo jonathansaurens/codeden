@@ -7,6 +7,8 @@ import {
   DesktopHostMessage,
   DesktopInfo,
   DesktopNotification,
+  DesktopServer,
+  DesktopServerAdd,
   DesktopServerMessage,
   DesktopUpdateState,
   deepLinkPath,
@@ -269,5 +271,29 @@ describe("desktop settings", () => {
     });
     expect(Settings.parse({ desktop: { nativeBrowser: false } }).desktop.nativeBrowser).toBe(false);
     expect(Settings.parse(JSON.parse(JSON.stringify(parsed)))).toEqual(parsed);
+  });
+});
+
+describe("other servers (§17.1)", () => {
+  it("round-trips a server entry and the info of a remote window", () => {
+    const server = { id: "abcdef012345", name: "Omarchy", url: "https://omaweb.tail.ts.net:8446" };
+    expect(DesktopServer.parse(JSON.parse(JSON.stringify(server)))).toEqual(server);
+    expect(DesktopServer.parse({ id: "local", name: "This Mac", url: null }).url).toBeNull();
+    expect(DesktopServer.safeParse({ ...server, name: "" }).success).toBe(false);
+    const info = {
+      version: "0.8.0",
+      platform: "darwin",
+      packaged: true,
+      ownsServer: false,
+      launchAtLoginSupported: false,
+      server: { id: server.id, name: server.name, remote: true },
+    };
+    expect(DesktopInfo.parse(JSON.parse(JSON.stringify(info)))).toEqual(info);
+    // Older apps send no `server`.
+    expect(DesktopInfo.safeParse({ ...info, server: undefined }).success).toBe(true);
+    expect(DesktopServerAdd.parse({ name: "x", url: "https://x.ts.net" })).toEqual({
+      name: "x",
+      url: "https://x.ts.net",
+    });
   });
 });

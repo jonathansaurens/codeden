@@ -144,6 +144,7 @@ describe("zoom menu items", () => {
     retryLoading: () => {},
     quit: () => {},
     zoom: (command: ZoomCommand) => calls.push(command),
+    servers: { list: [], open: () => {}, add: () => {}, manage: () => {} },
   });
   const viewItems = (platform: NodeJS.Platform, calls: ZoomCommand[] = []) => {
     const view = appMenuTemplate(platform, actionsFor(calls)).find((m) => m.label === "View");

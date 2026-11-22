@@ -1,4 +1,5 @@
 import type { ActivitySummary, DesktopUpdateState } from "@codeden/contracts";
+import type { TrayServer } from "./servers/summary";
 
 export interface TrayInput {
   /** Latest counts from the server, null before the first answer. */
@@ -8,6 +9,8 @@ export interface TrayInput {
   update: DesktopUpdateState;
   /** `settings.updates.mode` is `auto` (a download installs on quit, no prompt needed). */
   autoUpdate: boolean;
+  /** Other servers with their counts (§17.1). */
+  servers?: readonly TrayServer[];
 }
 
 export interface TrayView {
@@ -16,6 +19,8 @@ export interface TrayView {
   lines: string[];
   /** Count for the app icon badge: things waiting on the user. */
   badge: number;
+  /** Other servers, each a line with its counts and an Open item. */
+  servers: TrayServer[];
   /** An update action for the tray menu, if one is due. */
   update: { label: string; command: "download" | "install" | null } | null;
 }
@@ -53,6 +58,7 @@ export function trayView(input: TrayInput): TrayView {
     tooltip: `CodeDen (${summary})`,
     lines,
     badge: activity && input.connected ? Math.max(activity.inbox, activity.waiting) : 0,
+    servers: [...(input.servers ?? [])],
     update: updateItem(update, input.autoUpdate),
   };
 }

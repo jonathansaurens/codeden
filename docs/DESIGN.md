@@ -1046,6 +1046,16 @@ Settled in the implementation:
 
 Browser speech recognition doesn't work inside Electron, so dictation there uses local Whisper (§11.3) or a cloud engine; the UI finds this out by feature detection.
 
+### 17.1 Other CodeDen servers
+
+The app lists This Mac (always first, never removable) and remote entries `{ id, name, url }` kept in `<home>/desktop/servers.json`, never in a server's `settings.json`. A remote is an `https://host[:port]` address validated by `parseTrustedOrigin` (§15.1) and checked with `GET /api/health` (credentials omitted, no redirects) before saving; another version is a warning. Rules for its window, all enforced in the main process:
+
+- **One window per server**, `BrowserWindow` with the persistent partition `persist:codeden-remote-<id>`: cookies and storage are shared with no other server or with This Mac's window; removing an entry clears the partition. The page is the server's own password sign-in; the 90-day device session lives in the partition. Size, position and zoom are saved per server. Closing hides the window (its page keeps running for notifications); quitting stops This Mac's server only.
+- **The install token is never sent to a remote.** Navigation and `window.open` are locked to the server's origin (others go to the system browser); notifications and the microphone are granted only to that origin; certificate errors are never accepted.
+- **A smaller bridge.** Every call is checked against the sending `webContents`, its window kind and its origin (`bridge-policy.ts`). Remote windows may call `info`, `notify`, `openExternal`, `setBadge`, `servers.list` and `servers.open`, and receive `onNotificationClick` and `onNavigate`; `pickFolder`, `browser.*` and list changes are refused, and the preload exposes no `browser` API to them. `info()` reports `server.remote`; the preload also tells the page synchronously (`remote`), so `PlatformBridge` capabilities (§13) read as in a browser: built-in folder picker, the runner's Chromium for session browsers, no app settings.
+- **Background status.** One poller per remote calls `/api/activity` through that partition's session (its device cookie); a remote that is down or signed out is a state in the tray, never an error. The dock badge is This Mac's count plus every reachable remote's; the tray lists each server with its running and waiting counts and Open; notifications are titled with the server's name and a click opens its window. Keep-awake follows This Mac's agents only; the app's updates stay about the app.
+- **Switching.** A Servers menu (Cmd/Ctrl+1 to 9, Add server, Manage servers) and a chip in the sidebar header of every desktop window. The manager lives in This Mac's window.
+
 ## 18. Testing
 
 - **Unit tests** (Vitest): the event reducer, projections, the tool registry, the autonomy policy classifier, the scheduler and the runner protocol.

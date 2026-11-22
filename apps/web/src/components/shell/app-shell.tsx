@@ -16,6 +16,7 @@ import { CommandPalette } from "./command-palette";
 import { LiveEffects } from "./live-effects";
 import { MobileNavDrawer } from "./mobile-nav";
 import { ResizeHandle } from "./resize-handle";
+import { ServersDialog } from "./servers-dialog";
 import { ShortcutsDialog, useGlobalShortcuts } from "./shortcuts";
 import { Sidebar } from "./sidebar/sidebar";
 import { SidebarRail } from "./sidebar/sidebar-rail";
@@ -135,6 +136,7 @@ export function AppShell() {
       {(viewport.drawerNav || viewport.railNav) && <MobileNavDrawer />}
       <CommandPalette />
       <AddProjectDialog />
+      <ServersDialog />
       <HandoffDialog />
       <ReviewDialog />
       <ShortcutsDialog />

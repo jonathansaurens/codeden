@@ -15,6 +15,19 @@ function subscribe<T>(channel: string, listener: (value: T) => void): () => void
   };
 }
 
+/** Set by the main process for a window on another CodeDen server (§17.1). */
+const remoteId = process.argv
+  .find((arg) => arg.startsWith("--codeden-remote="))
+  ?.slice("--codeden-remote=".length);
+
+const browser: NonNullable<CodedenDesktopApi["browser"]> = {
+  show: (sessionId, bounds) => ipcRenderer.send(CHANNELS.browserShow, { sessionId, bounds }),
+  hide: (sessionId) => ipcRenderer.send(CHANNELS.browserHide, sessionId),
+  capture: (sessionId) => ipcRenderer.invoke(CHANNELS.browserCapture, sessionId),
+  inspect: (sessionId) => ipcRenderer.send(CHANNELS.browserInspect, sessionId),
+  onShortcut: (listener) => subscribe(CHANNELS.browserShortcut, listener),
+};
+
 const api: CodedenDesktopApi = {
   info: () => ipcRenderer.invoke(CHANNELS.info),
   pickFolder: (opts) => ipcRenderer.invoke(CHANNELS.pickFolder, opts ?? {}),
@@ -23,12 +36,16 @@ const api: CodedenDesktopApi = {
   openExternal: (url) => ipcRenderer.send(CHANNELS.openExternal, url),
   setBadge: (count) => ipcRenderer.send(CHANNELS.setBadge, count),
   onNavigate: (listener) => subscribe(CHANNELS.navigate, listener),
-  browser: {
-    show: (sessionId, bounds) => ipcRenderer.send(CHANNELS.browserShow, { sessionId, bounds }),
-    hide: (sessionId) => ipcRenderer.send(CHANNELS.browserHide, sessionId),
-    capture: (sessionId) => ipcRenderer.invoke(CHANNELS.browserCapture, sessionId),
-    inspect: (sessionId) => ipcRenderer.send(CHANNELS.browserInspect, sessionId),
-    onShortcut: (listener) => subscribe(CHANNELS.browserShortcut, listener),
+  // A remote window gets no native session browser (the main process refuses it as well).
+  ...(remoteId ? { remote: { id: remoteId } } : { browser }),
+  servers: {
+    list: () => ipcRenderer.invoke(CHANNELS.serversList),
+    open: (id) => ipcRenderer.send(CHANNELS.serversOpen, id),
+    add: (server) => ipcRenderer.invoke(CHANNELS.serversAdd, server),
+    rename: (id, name) => ipcRenderer.invoke(CHANNELS.serversRename, id, name),
+    remove: (id) => ipcRenderer.invoke(CHANNELS.serversRemove, id),
+    onManage: (listener) => subscribe(CHANNELS.serversManage, listener),
+    onChange: (listener) => subscribe(CHANNELS.serversChanged, () => listener()),
   },
 };
 
