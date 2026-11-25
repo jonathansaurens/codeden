@@ -36,6 +36,7 @@ const SENDERS: Record<QueueSender, string | null> = {
   factory: "From the factory",
   automation: "From an automation",
   codeden: "From CodeDen",
+  member: "From a connected agent",
 };
 
 /** Who queued a message, for its label; `null` for the user's own messages. */

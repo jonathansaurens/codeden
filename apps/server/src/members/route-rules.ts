@@ -251,7 +251,8 @@ export const ROUTE_RULES: Readonly<Record<string, RouteRule>> = {
   "POST /automations/:id/enable": w(automation),
   "POST /automations/:id/disable": w(automation),
   "POST /automations/:id/clear-override": w(automation),
-  "POST /automations/:id/run": o(automation),
+  // An automation for every project runs in the one the request names.
+  "POST /automations/:id/run": o({ body: "projectId" }),
   "POST /automations/:id/pause": w(automation),
   "POST /automations/:id/resume": w(automation),
   "POST /automations/:id/skip-next": w(automation),
@@ -330,6 +331,13 @@ export const ROUTE_RULES: Readonly<Record<string, RouteRule>> = {
   "DELETE /members/:id": w("server"),
   "DELETE /members/:id/devices/:deviceId": w("server"),
   "POST /members/agents": w("server"),
+
+  // Connected agents' interfaces (§C.2): each tool checks the member's role on its target.
+  "POST /member-mcp": member(),
+  "GET /member-mcp": member(),
+  "DELETE /member-mcp": member(),
+  "GET /member-tools": member(),
+  "POST /member-tools/:name": member(),
   "POST /members/:id/tokens": w("server"),
   "DELETE /members/:id/tokens/:tokenId": w("server"),
 };

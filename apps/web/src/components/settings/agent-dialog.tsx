@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { useClient } from "@/lib/api";
 import { copyWithFeedback } from "@/lib/copy";
 import { membersKey } from "@/lib/members";
+import { AgentSnippets } from "./agent-snippets";
 import { ProjectRolesEditor, RoleSelect } from "./member-dialogs";
 
 const AGENT_ROLES = ["none", "viewer", "operator"] as const;
@@ -80,7 +81,10 @@ export function AddAgentDialog({ onClose }: { onClose: () => void }) {
           </DialogDescription>
         </DialogHeader>
         {created ? (
-          <TokenOnce token={created.token} />
+          <div className="max-h-[60vh] space-y-4 overflow-y-auto">
+            <TokenOnce token={created.token} />
+            <AgentSnippets token={created.token} />
+          </div>
         ) : (
           <div className="space-y-4">
             <Input

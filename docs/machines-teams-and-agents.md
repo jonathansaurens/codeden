@@ -164,6 +164,7 @@ Accept when:
     - `run_automation`
   - **Following along:** `wait_for_session` (blocks until a session is idle, finished, or needs input, up to a deadline), so an agent can hand off work and come back.
 - **HTTP API and CLI.** The same actions on the documented HTTP API, and `codeden --server <url> --token <token> <command>` for scripts.
+- **As built (fork):** the HTTP API is `GET /api/member-tools` and `POST /api/member-tools/<tool>` with the tool's input as JSON, so MCP, HTTP and the CLI share one list (the UI's own routes accept member tokens too, under the same role table). `start_session` has no machine placement yet: Part A isn't on this branch, and the parameter follows when placement lands.
 - **Setup snippets** in the Add agent dialog: an `mcp.json` entry, a `claude mcp add` command, and a curl example.
 
 ### C.3 Safety

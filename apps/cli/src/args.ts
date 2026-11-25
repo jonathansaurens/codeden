@@ -17,6 +17,8 @@ Usage:
                          HTTPS addresses of a proxy on this computer that CodeDen trusts
   codeden runner-link    Connect stdin/stdout to the runner in --home (run by the server
                          inside a sandbox; stdout carries only protocol frames)
+  codeden --server <url> --token <token> <command>
+                         Use a CodeDen server's member tools (see: codeden --server <url> --token <token> tools)
 
 Options:
   --port <n>     Port to listen on (default ${DEFAULT_PORT})

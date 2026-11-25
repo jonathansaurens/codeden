@@ -72,6 +72,11 @@ export const MessageSender = z.enum([
   "factory",
   "automation",
   "codeden",
+  /**
+   * A connected agent (an agent member, §C.3): its words are untrusted content, never the
+   * user's, so they carry no more authority than its role.
+   */
+  "member",
 ]);
 export type MessageSender = z.infer<typeof MessageSender>;
 

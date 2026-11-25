@@ -30,8 +30,8 @@ import type { McpTokenStore } from "../../mcp/tokens";
 import {
   answeredBy,
   answeredByOf,
+  asSent,
   assertMayAnswerApproval,
-  withAuthor,
 } from "../../members/attribution";
 import { currentActor } from "../../members/principal";
 import type { SettingsStore } from "../../settings-store";
@@ -212,7 +212,7 @@ export class SessionService {
     if (req.input) {
       req = {
         ...req,
-        input: withAuthor(req.input, req.startedBy.kind === "user" ? "user" : "codeden"),
+        input: asSent(req.input, req.startedBy.kind === "user" ? "user" : "codeden").input,
       };
     }
     const { repo, projects } = this.deps;
@@ -355,7 +355,9 @@ export class SessionService {
     req: SendMessageRequest,
     from: QueueSender = "user",
   ): Promise<SendMessageResponse> {
-    req = { ...req, input: withAuthor(req.input, from) };
+    const sent = asSent(req.input, from);
+    req = { ...req, input: sent.input };
+    from = sent.from;
     const session = this.deps.repo.get(id);
     assertProjectActive(this.deps.projects, session);
     // A newer session holds the role: this one stays archived (§8.1).
@@ -402,7 +404,7 @@ export class SessionService {
   }
 
   async steer(id: string, raw: UserInput): Promise<void> {
-    raw = withAuthor(raw, raw.from ?? "user");
+    raw = asSent(raw, raw.from ?? "user").input;
     const session = this.deps.repo.get(id);
     assertProjectActive(this.deps.projects, session);
     if (!BUSY.has(session.status)) throw conflict("No turn is running", "no_turn");

@@ -15,6 +15,7 @@ import { rowToAutomation } from "../db/rows";
 import { automations, inboxItems, sessions } from "../db/schema";
 import type { MemberAuth } from "../members/auth";
 import { routeGate } from "../members/route-gate";
+import { MemberToolRegistry } from "../members/tools/registry";
 import type { AppServices } from "../services/container";
 import { badRequest } from "../services/errors";
 import { archivedSessionCounts, snapshotSessions } from "../services/sessions/archived";
@@ -27,6 +28,7 @@ import { factoryRoutes, projectFactoryRoutes } from "./factory";
 import { githubRoutes, projectGithubRoutes, prRoutes, sessionGithubRoutes } from "./github";
 import { imageRoutes } from "./images";
 import { inboxRoutes } from "./inbox";
+import { memberToolRoutes } from "./member-tools";
 import { memberRoutes } from "./members";
 import { authRoutes, type NetworkRouteContext, networkRoutes } from "./network";
 import { conflictRoutes, orchestrationRoutes } from "./orchestration";
@@ -121,6 +123,8 @@ export function createApi(ctx: ApiContext) {
         "/members",
         memberRoutes({ services: s, auth: ctx.memberAuth, network: ctx.network.network }),
       )
+      // Connected agents (§C.2): the member tools over MCP and HTTP.
+      .route("/", memberToolRoutes(new MemberToolRegistry(s, undefined, ctx.log), ctx.log))
       .route("/", fileRoutes(s))
       .get("/settings", (c) => c.json(s.settings.get()))
       .patch("/settings", async (c) => {
