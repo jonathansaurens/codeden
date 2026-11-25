@@ -20,6 +20,7 @@ import { createMcpHandler } from "./mcp/endpoint";
 import { MemberAuth } from "./members/auth";
 import { ownsEverything } from "./members/authorize";
 import { principalOf } from "./members/principal";
+import { AgentRateLimiter } from "./members/rate-limit";
 import { canWatchSession, eventFilterFor, terminalAccess } from "./members/sockets";
 import { NetworkAccess } from "./network/access";
 import type { InterfaceMap } from "./network/addresses";
@@ -158,6 +159,8 @@ export interface StartServerOptions {
   executionBackends?: { docker?: ExecutionBackend };
   /** How long a new sandbox's runner may take to answer (default 2 minutes). */
   sandboxConnectTimeoutMs?: number;
+  /** Connected agents' per-token rate limit (tests make it small and never refilling). */
+  agentRateLimit?: { burst: number; perMinute: number };
   /** Network interfaces for the address list (tests). */
   networkInterfaces?: () => InterfaceMap;
   log?: (message: string) => void;
@@ -320,7 +323,13 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     securityLogFile: paths.remoteAccessLog,
     log,
   });
-  const memberAuth = new MemberAuth({ members: services.members, network });
+  const memberAuth = new MemberAuth({
+    members: services.members,
+    network,
+    rate: opts.agentRateLimit
+      ? new AgentRateLimiter(Date.now, opts.agentRateLimit.burst, opts.agentRateLimit.perMinute)
+      : undefined,
+  });
   const sessionCookie = () => `codeden_session_${port}`;
   const tokenCookie = () => `codeden_token_${port}`;
   const allowedOrigins = () => {

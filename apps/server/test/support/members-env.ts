@@ -27,7 +27,7 @@ export const MEMBER_PASSWORD = "harbor-violet-lantern-quiet-mesa";
 export interface MembersEnv {
   server: RunningServer;
   home: string;
-  /** A request as this machine's browser (install token). */
+  /** A request as this machine's browser (install token, unless `authorization` is given). */
   local(path: string, init?: RequestInit): Promise<Response>;
   /** A request from another device through the proxy; `as` is a cookie or an agent token. */
   remote(path: string, init?: RequestInit & { as?: Credential; from?: string }): Promise<Response>;
@@ -35,6 +35,8 @@ export interface MembersEnv {
   invite(role: MemberRole, extra?: Partial<CreateInviteRequest>): Promise<string>;
   /** Join with an invite from another device; returns the session cookie. */
   join(secret: string, name: string): Promise<Credential>;
+  /** Add a connected agent (as the owner); returns its id and bearer credential. */
+  agent(req: Record<string, unknown>): Promise<{ id: string; as: Credential }>;
   close(): Promise<void>;
 }
 
@@ -47,7 +49,9 @@ export const jsonInit = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-export async function startMembersEnv(opts: { home?: string } = {}): Promise<MembersEnv> {
+export async function startMembersEnv(
+  opts: { home?: string; agentRateLimit?: { burst: number; perMinute: number } } = {},
+): Promise<MembersEnv> {
   const home = opts.home ?? mkdtempSync(join(tmpdir(), "codeden-members-"));
   const server = await startServer({
     port: 0,
@@ -57,6 +61,7 @@ export async function startMembersEnv(opts: { home?: string } = {}): Promise<Mem
     secrets: "memory",
     checkSetupOnStart: false,
     github: { sync: false },
+    agentRateLimit: opts.agentRateLimit,
   });
   if (!server.network.store.passwordSet)
     await server.network.setPassword({ password: OWNER_PASSWORD });
@@ -77,7 +82,7 @@ export async function startMembersEnv(opts: { home?: string } = {}): Promise<Mem
     local(path, init = {}) {
       const headers = new Headers(init.headers);
       headers.set("host", `127.0.0.1:${server.port}`);
-      headers.set("authorization", `Bearer ${MEMBERS_TOKEN}`);
+      if (!headers.has("authorization")) headers.set("authorization", `Bearer ${MEMBERS_TOKEN}`);
       return request(path, init, `127.0.0.1:${server.port}`, headers);
     },
     remote(path, init = {}) {
@@ -100,6 +105,12 @@ export async function startMembersEnv(opts: { home?: string } = {}): Promise<Mem
       );
       if (!res.ok) throw new Error(`join failed: ${res.status} ${await res.text()}`);
       return { cookie: cookieOf(res) };
+    },
+    async agent(req) {
+      const res = await env.local("/api/members/agents", jsonInit("POST", req));
+      if (!res.ok) throw new Error(`add agent failed: ${res.status} ${await res.text()}`);
+      const body = (await res.json()) as { member: { id: string }; token: string };
+      return { id: body.member.id, as: { bearer: body.token } };
     },
     async close() {
       await server.close();

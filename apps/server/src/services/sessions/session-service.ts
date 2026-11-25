@@ -27,7 +27,12 @@ import type {
 } from "@codeden/contracts";
 import type { SandboxService } from "../../execution/sandboxes";
 import type { McpTokenStore } from "../../mcp/tokens";
-import { answeredBy, answeredByOf, withAuthor } from "../../members/attribution";
+import {
+  answeredBy,
+  answeredByOf,
+  assertMayAnswerApproval,
+  withAuthor,
+} from "../../members/attribution";
 import { currentActor } from "../../members/principal";
 import type { SettingsStore } from "../../settings-store";
 import type { ArtifactService } from "../artifacts";
@@ -457,6 +462,7 @@ export class SessionService {
   /** Answer a question or approval; `by` is who answered a question (the user or the PM). */
   async respond(id: string, req: RespondRequest, by: Answerer = "user"): Promise<void> {
     this.deps.repo.get(id);
+    if (req.response.kind === "approval") assertMayAnswerApproval();
     // Two people answering at once (§B.4): the first answer wins, the second hears who gave it.
     const key = `${id}\u0000${req.requestId}`;
     const answered = this.deps.inbox.findForRequest(id, req.requestId);

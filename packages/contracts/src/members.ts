@@ -231,6 +231,10 @@ export const MemberDetail = z.object({
 });
 export type MemberDetail = z.infer<typeof MemberDetail>;
 
+/** `POST /api/members/:id/tokens` (owners): a new token for an agent, shown once. */
+export const MintTokenResponse = z.object({ token: z.string(), member: MemberDetail });
+export type MintTokenResponse = z.infer<typeof MintTokenResponse>;
+
 /** `GET /api/members` (owners): everyone, and the invites. */
 export const MembersResponse = z.object({
   members: z.array(MemberDetail),

@@ -1,4 +1,6 @@
 import {
+  type CreateAgentRequest,
+  CreateAgentResponse,
   type CreateInviteRequest,
   CreateInviteResponse,
   type Member,
@@ -7,6 +9,7 @@ import {
   MemberSummariesResponse,
   MembersResponse,
   MeResponse,
+  MintTokenResponse,
   OWNER_MEMBER_ID,
   type UpdateMemberRequest,
 } from "@codeden/contracts";
@@ -25,11 +28,20 @@ export interface MembersApi {
   update(id: string, patch: UpdateMemberRequest): Promise<MemberDetail>;
   remove(id: string): Promise<void>;
   signOutDevice(memberId: string, deviceId: string): Promise<MemberDetail>;
+  /** Owners: Settings › Members › Add agent (§C.1). The token is in the answer, once. */
+  createAgent(req: CreateAgentRequestInit): Promise<CreateAgentResponse>;
+  /** Owners: another token for an agent, shown once. */
+  mintToken(memberId: string): Promise<MintTokenResponse>;
+  revokeToken(memberId: string, tokenId: string): Promise<MemberDetail>;
   /** Owners: the latest things people and connected agents did (§B.4). */
   activity(): Promise<MemberActivityResponse>;
 }
 
 const enc = encodeURIComponent;
+
+/** An Add agent request before defaults (`projectRoles`, `mayAnswerApprovals` optional). */
+export type CreateAgentRequestInit = Pick<CreateAgentRequest, "name" | "role"> &
+  Partial<CreateAgentRequest>;
 
 export function httpMembersApi(http: Fetcher): MembersApi {
   return {
@@ -46,6 +58,13 @@ export function httpMembersApi(http: Fetcher): MembersApi {
       await http.call("DELETE", `/members/${enc(id)}`);
     },
     activity: () => http.get("/members/activity", (v) => MemberActivityResponse.parse(v)),
+    createAgent: (req) => http.post("/members/agents", req, (v) => CreateAgentResponse.parse(v)),
+    mintToken: (id) =>
+      http.post(`/members/${enc(id)}/tokens`, {}, (v) => MintTokenResponse.parse(v)),
+    revokeToken: (id, tokenId) =>
+      http.call("DELETE", `/members/${enc(id)}/tokens/${enc(tokenId)}`, undefined, (v) =>
+        MemberDetail.parse(v),
+      ),
     signOutDevice: (memberId, deviceId) =>
       http.call("DELETE", `/members/${enc(memberId)}/devices/${enc(deviceId)}`, undefined, (v) =>
         MemberDetail.parse(v),
@@ -116,5 +135,24 @@ export function mockMembersApi(): MembersApi {
     },
     signOutDevice: async (memberId) => detail(find(memberId)),
     activity: async () => ({ events: [] }),
+    async createAgent(req) {
+      const at = new Date().toISOString();
+      const member: Member = {
+        id: crypto.randomUUID(),
+        kind: "agent",
+        name: req.name,
+        role: req.role,
+        projectRoles: req.projectRoles ?? {},
+        disabled: false,
+        mayAnswerApprovals: req.mayAnswerApprovals ?? false,
+        createdBy: OWNER_MEMBER_ID,
+        createdAt: at,
+        updatedAt: at,
+      };
+      members = [...members, member];
+      return { member, token: "cda_mock-agent-token" };
+    },
+    mintToken: async (id) => ({ token: "cda_mock-agent-token", member: detail(find(id)) }),
+    revokeToken: async (id) => detail(find(id)),
   };
 }

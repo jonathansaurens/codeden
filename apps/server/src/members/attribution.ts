@@ -1,5 +1,6 @@
 import type { Actor, UserInput } from "@codeden/contracts";
-import { currentActor } from "./principal";
+import { forbidden } from "../services/errors";
+import { currentActor, currentPrincipal } from "./principal";
 
 /**
  * A message's input with its author (§B.4): the member whose request sends it, when a person or
@@ -26,4 +27,18 @@ export function answeredByOf(resolution: unknown): Actor | undefined {
   return typeof memberId === "string" && (kind === "person" || kind === "agent")
     ? { memberId, kind }
     : undefined;
+}
+
+/**
+ * Connected agents answer approvals only when an owner ticked "May answer approvals" for them
+ * (§C.3); questions are always theirs to answer. Throws 403 otherwise.
+ */
+export function assertMayAnswerApproval(): void {
+  const member = currentPrincipal()?.member;
+  if (member?.kind === "agent" && !member.mayAnswerApprovals) {
+    throw forbidden(
+      "This connected agent may not answer approvals. An owner can allow it in Settings › Members.",
+      "approvals_not_allowed",
+    );
+  }
 }

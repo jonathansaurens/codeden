@@ -329,4 +329,7 @@ export const ROUTE_RULES: Readonly<Record<string, RouteRule>> = {
   "PATCH /members/:id": w("server"),
   "DELETE /members/:id": w("server"),
   "DELETE /members/:id/devices/:deviceId": w("server"),
+  "POST /members/agents": w("server"),
+  "POST /members/:id/tokens": w("server"),
+  "DELETE /members/:id/tokens/:tokenId": w("server"),
 };

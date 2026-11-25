@@ -1,26 +1,43 @@
-import { type Member, OWNER_MEMBER_ID, type RemoteDevice } from "@codeden/contracts";
+import {
+  AGENT_TOKEN_PREFIX,
+  type Member,
+  OWNER_MEMBER_ID,
+  type RemoteDevice,
+} from "@codeden/contracts";
+import type { Context } from "hono";
 import type { NetworkAccess } from "../network/access";
-import type { PrincipalHooks } from "../security";
+import { SignInLimiter } from "../network/rate-limit";
+import { type BearerCheck, type PrincipalHooks, peerAddress, proxyClientOf } from "../security";
 import type { Principal } from "./principal";
+import { AgentRateLimiter } from "./rate-limit";
 import type { MemberService } from "./service";
 
 export interface MemberAuthOptions {
   members: MemberService;
   network: NetworkAccess;
+  now?: () => number;
+  /** Per-token limits (tests pass a small one). */
+  rate?: AgentRateLimiter;
 }
 
 /**
  * How requests become members (§B.2, §C.1): the install token is the first owner, a device's
  * session is the member who signed in on it, and a connected agent's bearer token is that agent.
- * Disabled and deleted members are refused everywhere.
+ * Disabled and deleted members are refused everywhere. Failed tokens are throttled per address
+ * with the sign-in rules (§15.1); good tokens have a rate limit of their own (§C.3).
  */
 export class MemberAuth {
   readonly members: MemberService;
   private readonly network: NetworkAccess;
+  /** Failed agent tokens, per client address (the sign-in rules). */
+  readonly tokenFailures: SignInLimiter;
+  readonly rate: AgentRateLimiter;
 
   constructor(opts: MemberAuthOptions) {
     this.members = opts.members;
     this.network = opts.network;
+    this.tokenFailures = new SignInLimiter(opts.now);
+    this.rate = opts.rate ?? new AgentRateLimiter(opts.now);
   }
 
   ownerPrincipal(): Principal {
@@ -35,9 +52,8 @@ export class MemberAuth {
         if (!member || member.disabled || member.kind !== "person") return undefined;
         return { member, via: "session", sessionId: session.id };
       },
-      // Connected agents' tokens come with agent members.
-      claims: () => false,
-      bearer: () => ({ refused: 401, message: "Missing or invalid token" }),
+      claims: (token) => token.startsWith(AGENT_TOKEN_PREFIX),
+      bearer: (token, c) => this.checkBearer(token, c),
     };
   }
 
@@ -69,5 +85,34 @@ export class MemberAuth {
   cutOff(memberId: string): void {
     this.network.store.revokeMember(memberId);
     this.network.dropRemote();
+  }
+
+  private checkBearer(token: string, c: Context): BearerCheck {
+    const proxy = proxyClientOf(c);
+    const address = proxy ? `proxy:${proxy.address ?? "unknown"}` : peerAddress(c);
+    const gate = this.tokenFailures.check(address);
+    if (!gate.allowed) {
+      return {
+        refused: 429,
+        retryAfterSec: Math.ceil(gate.retryAfterMs / 1000),
+        message: "Too many bad tokens from this address. Wait and try again.",
+      };
+    }
+    const verified = this.members.verifyToken(token);
+    if (!verified) {
+      this.tokenFailures.fail(address);
+      this.network.recordFailedSignIn(address, "invalid agent token", proxy !== undefined);
+      return { refused: 401, message: "Missing or invalid CodeDen agent token" };
+    }
+    this.tokenFailures.succeed(address);
+    const rate = this.rate.take(verified.tokenId);
+    if (!rate.allowed) {
+      return {
+        refused: 429,
+        retryAfterSec: Math.ceil(rate.retryAfterMs / 1000),
+        message: "This agent is sending requests too fast. Slow down.",
+      };
+    }
+    return { principal: { member: verified.member, via: "token", tokenId: verified.tokenId } };
   }
 }

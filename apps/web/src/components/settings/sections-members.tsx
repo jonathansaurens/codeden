@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { useClient } from "@/lib/api";
 import { ago, until } from "@/lib/format";
 import { memberName, membersKey, ROLE_LABEL, useCan, useMemberNames } from "@/lib/members";
+import { AddAgentDialog, TokenOnce } from "./agent-dialog";
 import { InviteDialog, ProjectRolesEditor, RoleSelect } from "./member-dialogs";
 import { deviceName } from "./sections-network";
 import { SettingRow, SettingsSection } from "./settings-ui";
@@ -20,6 +21,7 @@ export function MembersSettings() {
   const client = useClient();
   const isOwner = useCan("owner", undefined);
   const [inviting, setInviting] = useState(false);
+  const [addingAgent, setAddingAgent] = useState(false);
   const list = useQuery({
     queryKey: membersKey,
     queryFn: () => client.members.list(),
@@ -51,6 +53,14 @@ export function MembersSettings() {
           <Button size="sm" onClick={() => setInviting(true)} data-testid="invite-member">
             <UserPlus /> Invite someone
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setAddingAgent(true)}
+            data-testid="add-agent"
+          >
+            <Bot /> Add agent
+          </Button>
         </div>
         {members.map((d) => (
           <MemberRow key={d.member.id} detail={d} />
@@ -65,6 +75,7 @@ export function MembersSettings() {
       )}
       <ActivityList />
       {inviting && <InviteDialog onClose={() => setInviting(false)} />}
+      {addingAgent && <AddAgentDialog onClose={() => setAddingAgent(false)} />}
     </>
   );
 }
@@ -223,6 +234,7 @@ function MemberRow({ detail }: { detail: MemberDetail }) {
           onChange={(projectRoles) => update.mutate({ projectRoles })}
         />
       )}
+      {agent && <AgentControls detail={detail} onChange={refresh} />}
       {detail.devices.length > 0 && (
         <ul className="space-y-1 pl-7">
           {detail.devices.map((d) => (
@@ -236,6 +248,62 @@ function MemberRow({ detail }: { detail: MemberDetail }) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+/** A connected agent's approval switch and tokens: last used, revoke, and a new one (§C.1). */
+function AgentControls({ detail, onChange }: { detail: MemberDetail; onChange: () => void }) {
+  const client = useClient();
+  const { member } = detail;
+  const [fresh, setFresh] = useState<string | null>(null);
+  const update = useMutation({
+    mutationFn: (mayAnswerApprovals: boolean) =>
+      client.members.update(member.id, { mayAnswerApprovals }),
+    onSuccess: onChange,
+  });
+  const mint = useMutation({
+    mutationFn: () => client.members.mintToken(member.id),
+    onSuccess: (res) => {
+      setFresh(res.token);
+      onChange();
+    },
+  });
+  const revoke = useMutation({
+    mutationFn: (tokenId: string) => client.members.revokeToken(member.id, tokenId),
+    onSuccess: onChange,
+  });
+  const live = detail.tokens.filter((t) => !t.revokedAt);
+  return (
+    <div className="space-y-2 pl-7">
+      <div className="flex items-center justify-between gap-2 text-2xs">
+        <span className="text-muted-foreground">May answer approvals</span>
+        <Switch
+          checked={member.mayAnswerApprovals}
+          onCheckedChange={(on) => update.mutate(on)}
+          aria-label={`${member.name} may answer approvals`}
+        />
+      </div>
+      <ul className="space-y-1">
+        {live.map((t) => (
+          <li key={t.id} className="flex items-center justify-between gap-2 text-2xs">
+            <span className="text-muted-foreground">
+              Token from {ago(t.createdAt)} ·{" "}
+              {t.lastUsedAt ? `used ${ago(t.lastUsedAt)}` : "never used"}
+            </span>
+            <Button size="xs" variant="ghost" onClick={() => revoke.mutate(t.id)}>
+              Revoke
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {fresh ? (
+        <TokenOnce token={fresh} />
+      ) : (
+        <Button size="xs" variant="outline" onClick={() => mint.mutate()}>
+          New token
+        </Button>
       )}
     </div>
   );

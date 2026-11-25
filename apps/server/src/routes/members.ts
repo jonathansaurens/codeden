@@ -1,4 +1,6 @@
 import {
+  CreateAgentRequest,
+  type CreateAgentResponse,
   CreateInviteRequest,
   type CreateInviteResponse,
   type MemberActivityResponse,
@@ -7,6 +9,7 @@ import {
   type MemberSummariesResponse,
   type MembersResponse,
   type MeResponse,
+  type MintTokenResponse,
   memberGlobalRole,
   memberRoleOn,
   OWNER_MEMBER_ID,
@@ -144,6 +147,25 @@ export function memberRoutes(ctx: MemberRouteContext) {
         ctx.auth.cutOff(id);
         s.members.delete(id);
         return c.json({ ok: true as const });
+      })
+      // Settings › Members › Add agent (§C.1): the token is shown once.
+      .post("/agents", jsonBody(CreateAgentRequest), (c) => {
+        const body: CreateAgentResponse = s.members.addAgent(
+          c.req.valid("json"),
+          callerOf(c).member.id,
+        );
+        return c.json(body);
+      })
+      .post("/:id/tokens", (c) => {
+        const id = c.req.param("id");
+        const token = s.members.mintToken(id);
+        const body: MintTokenResponse = { token, member: detail(ctx, id, null) };
+        return c.json(body);
+      })
+      .delete("/:id/tokens/:tokenId", (c) => {
+        const id = c.req.param("id");
+        s.members.revokeToken(id, c.req.param("tokenId"));
+        return c.json(detail(ctx, id, null));
       })
       .delete("/:id/devices/:deviceId", (c) => {
         const id = c.req.param("id");
