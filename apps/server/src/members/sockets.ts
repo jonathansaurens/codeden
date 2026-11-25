@@ -116,6 +116,8 @@ export function terminalAccess(
   query: TerminalQuery,
 ): SocketAccess {
   if (!principal) return null;
+  // A connected agent works through the member tools, never a shell on the server (§C.3).
+  if (principal.member.kind === "agent") return null;
   if (ownsEverything(principal.member)) return "full";
   if (!query.sessionId) {
     return authorize(principal, "owner", { kind: "server" }, authorizeContext(s)).ok
@@ -136,5 +138,7 @@ export function browserAccess(
 ): SocketAccess {
   if (!principal) return null;
   if (ownsEverything(principal.member)) return "full";
-  return sessionAccess(s, principal, sessionId);
+  const access = sessionAccess(s, principal, sessionId);
+  // Connected agents may watch a session's browser, never drive it.
+  return principal.member.kind === "agent" && access === "full" ? "read" : access;
 }

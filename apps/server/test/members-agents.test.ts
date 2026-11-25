@@ -127,6 +127,14 @@ describe("connected agents (§C.1, §C.3)", () => {
     );
   });
 
+  it("never gives an agent a terminal, even as an Operator", async () => {
+    env = await startMembersEnv();
+    seedProjects(env.server, ["p1"]);
+    const bot = await env.agent({ name: "bot", role: "operator" });
+    const res = await env.remote("/ws/pty?sessionId=s-p1", { as: bot.as });
+    expect(res.status).toBe(403);
+  });
+
   it("keeps agent tokens off the internal /mcp", async () => {
     env = await startMembersEnv();
     const bot = await env.agent({ name: "bot", role: "operator" });
