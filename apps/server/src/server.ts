@@ -18,6 +18,9 @@ import { SandboxService } from "./execution/sandboxes";
 import { writeJsonFile } from "./json-file";
 import { createMcpHandler } from "./mcp/endpoint";
 import { MemberAuth } from "./members/auth";
+import { ownsEverything } from "./members/authorize";
+import { principalOf } from "./members/principal";
+import { canWatchSession, eventFilterFor, terminalAccess } from "./members/sockets";
 import { NetworkAccess } from "./network/access";
 import type { InterfaceMap } from "./network/addresses";
 import { HttpListener } from "./network/listener";
@@ -226,6 +229,10 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     flushMs: opts.realtimeFlushMs,
     updateStatus: () => services.updates.snapshot(),
     artifacts: { artifactForPath: (path) => services.artifacts.artifactForPath(path) },
+    access: {
+      eventFilter: (principal) => eventFilterFor(services, principal),
+      canWatch: (principal, sessionId) => canWatchSession(services, principal, sessionId),
+    },
   });
   const secrets =
     opts.secrets === "memory"
@@ -372,7 +379,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   app.all("/mcp", (c) => mcp(c.req.raw));
   app.get(
     "/ws",
-    upgradeWebSocket(() => hub.handlers()),
+    upgradeWebSocket((c) => hub.handlers(principalOf(c))),
   );
   const terminals = new TerminalBridge({
     runner: services.runner,
@@ -388,7 +395,15 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     const query = TerminalQuery.safeParse(c.req.query());
     if (!query.success)
       return c.json({ error: { code: "bad_request", message: "Invalid terminal query" } }, 400);
-    return upgradeWebSocket(() => terminals.handlers(query.data))(c, next);
+    const principal = principalOf(c);
+    const access = terminalAccess(services, principal, query.data);
+    if (access === null)
+      return c.json(
+        { error: { code: "forbidden", message: "This terminal isn't yours to open" } },
+        403,
+      );
+    const strict = principal !== undefined && !ownsEverything(principal.member);
+    return upgradeWebSocket(() => terminals.handlers(query.data, { access, strict }))(c, next);
   });
   const browserBridge = mountBrowserSockets(app, services, log);
   mountWeb(app, findWebDir(opts.webDir));

@@ -45,6 +45,12 @@ function invalidateWorkbench(queryClient: QueryClient, env: EventEnvelope): void
   if (env.type === "session.created" || env.type === "session.updated")
     void queryClient.invalidateQueries({ queryKey: ["project-status"] });
   if (GITHUB_EVENTS.has(env.type)) void queryClient.invalidateQueries({ queryKey: ["github"] });
+  // A member's roles changed (§B.3): what this device may see and do may have changed with them.
+  if (env.type.startsWith("member.")) {
+    void queryClient.invalidateQueries({ queryKey: ["members"] });
+    if (env.type !== "member.created")
+      void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
+  }
   if (env.type === "message.queued" || env.type === "message.dequeued") {
     const id =
       env.type === "message.queued" ? env.payload.message.sessionId : env.payload.sessionId;

@@ -4,6 +4,7 @@ import { Check, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useClient } from "@/lib/api";
+import { useCanOnSession } from "@/lib/members";
 import { cn } from "@/lib/utils";
 import { PlanApprovalCard } from "./plan-approval-card";
 
@@ -62,6 +63,9 @@ function ActionApprovalCard({
       client.respond(sessionId, item.requestId, { kind: "approval", decision }),
     onError: (e) => toast.error("Couldn't send the decision", { description: e.message }),
   });
+
+  // Answering is an Operator's (§B.3); Viewers see the request and who answers it.
+  const mayAnswer = useCanOnSession("operator", sessionId);
 
   if (!pending) {
     const denied = item.decision === "deny" || item.status === "declined";
@@ -123,7 +127,10 @@ function ActionApprovalCard({
             {args}
           </pre>
         )}
-        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+        {!mayAnswer && (
+          <p className="text-2xs text-muted-foreground">Waiting for an Operator to answer.</p>
+        )}
+        <div className={cn("flex flex-wrap items-center gap-2 pt-0.5", !mayAnswer && "hidden")}>
           {item.options.includes("allow_once") && (
             <Button size="sm" disabled={busy} onClick={() => decide.mutate("allow_once")}>
               <Check /> Approve

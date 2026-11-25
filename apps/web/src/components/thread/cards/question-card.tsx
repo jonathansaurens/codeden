@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useClient } from "@/lib/api";
+import { useCanOnSession } from "@/lib/members";
 import { cn } from "@/lib/utils";
 
 type Answers = Record<string, string[]>;
@@ -35,6 +36,8 @@ export function QuestionCard({
   const [answers, setAnswers] = useState<Answers>({});
   const [freeText, setFreeText] = useState<Record<string, string>>({});
   const pending = item.status === "in_progress";
+  // Answering is an Operator's (§B.3).
+  const mayAnswer = useCanOnSession("operator", sessionId);
   const submit = useMutation({
     mutationFn: (response: RuntimeResponse) => client.respond(sessionId, item.requestId, response),
     onError: (e) => toast.error("Couldn't send your answer", { description: e.message }),
@@ -175,7 +178,12 @@ export function QuestionCard({
           </section>
         ))}
       </div>
-      <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/30 px-3.5 py-2">
+      <div
+        className={cn(
+          "flex items-center justify-end gap-2 border-t border-border bg-muted/30 px-3.5 py-2",
+          !mayAnswer && "hidden",
+        )}
+      >
         <span className="mr-auto text-2xs text-muted-foreground">
           {item.mcpServer
             ? `Your answers go to ${item.mcpServer}. The agent waits until you answer or dismiss.`

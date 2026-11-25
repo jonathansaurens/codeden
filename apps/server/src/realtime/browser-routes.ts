@@ -1,6 +1,8 @@
 import { BrowserWsQuery } from "@codeden/contracts";
 import { upgradeWebSocket } from "@hono/node-server";
 import type { Hono } from "hono";
+import { principalOf } from "../members/principal";
+import { browserAccess } from "../members/sockets";
 import type { AppServices } from "../services/container";
 import { BrowserBridge } from "./browser";
 
@@ -15,7 +17,7 @@ export const BROWSER_LOOPBACK_ONLY_PATHS = ["/ws/browser-host"] as const;
  */
 export function mountBrowserSockets(
   app: Hono,
-  services: Pick<AppServices, "browser" | "sessionRepo">,
+  services: AppServices,
   log: (message: string) => void,
 ): BrowserBridge {
   const bridge = new BrowserBridge({ browser: services.browser, log });
@@ -23,9 +25,13 @@ export function mountBrowserSockets(
     const query = BrowserWsQuery.safeParse(c.req.query());
     if (!query.success)
       return c.json({ error: { code: "bad_request", message: "Invalid browser query" } }, 400);
-    if (!services.sessionRepo.find(query.data.sessionId))
+    const access = browserAccess(services, principalOf(c), query.data.sessionId);
+    if (!services.sessionRepo.find(query.data.sessionId) || access === null)
       return c.json({ error: { code: "session_not_found", message: "No such session" } }, 404);
-    return upgradeWebSocket(() => bridge.handlers(query.data))(c, next);
+    return upgradeWebSocket(() => bridge.handlers(query.data, { readOnly: access === "read" }))(
+      c,
+      next,
+    );
   });
   app.get(
     "/ws/browser-host",

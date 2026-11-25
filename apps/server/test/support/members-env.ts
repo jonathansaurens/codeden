@@ -1,8 +1,15 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CreateInviteRequest, MemberRole } from "@codeden/contracts";
+import {
+  type CreateInviteRequest,
+  FactoryLimits,
+  type MemberRole,
+  type NewEvent,
+  Project,
+} from "@codeden/contracts";
 import { type RunningServer, startServer } from "../../src";
+import { sampleSession } from "../helpers";
 import { removeTree } from "./remove-tree";
 
 /**
@@ -105,4 +112,47 @@ export async function startMembersEnv(opts: { home?: string } = {}): Promise<Mem
 /** The `name=value` part of a response's session cookie. */
 export function cookieOf(res: Response): string {
   return (res.headers.get("set-cookie") ?? "").split(";")[0] as string;
+}
+
+/** A local project record for role tests (no folder or git needed). */
+export function projectFixture(id: string): Project {
+  const at = "2026-11-01T09:00:00.000Z";
+  return Project.parse({
+    id,
+    kind: "local",
+    name: id,
+    slug: id,
+    path: join(tmpdir(), `codeden-members-${id}`),
+    defaultBranch: "main",
+    defaultProvider: "fake",
+    defaultModel: null,
+    defaultEffort: null,
+    autonomy: null,
+    autonomyMode: "assisted",
+    visionPath: ".codeden/VISION.md",
+    factoryLimits: FactoryLimits.parse({}),
+    killSwitch: false,
+    timezone: null,
+    agentCiEnv: true,
+    execution: { backend: "local" },
+    pinned: false,
+    sortOrder: 0,
+    createdAt: at,
+    updatedAt: at,
+    archivedAt: null,
+  });
+}
+
+/** Projects and one idle agent session in each (`s-<project>`), straight into the event log. */
+export function seedProjects(server: RunningServer, ids: string[]): void {
+  server.store.append(
+    ids.flatMap((id): NewEvent[] => [
+      { type: "project.created", sessionId: null, payload: { project: projectFixture(id) } },
+      {
+        type: "session.created",
+        sessionId: `s-${id}`,
+        payload: { session: { ...sampleSession, id: `s-${id}`, projectId: id, status: "idle" } },
+      },
+    ]),
+  );
 }

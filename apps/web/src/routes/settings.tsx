@@ -37,6 +37,7 @@ import { UpdateCheck } from "@/components/settings/update-check";
 import { Logo } from "@/components/shell/logo";
 import { ShortcutList } from "@/components/shell/shortcuts";
 import { isMockMode } from "@/lib/api";
+import { useCan } from "@/lib/members";
 import { platform } from "@/lib/platform";
 import { useSnapshot } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -75,21 +76,71 @@ function About() {
   );
 }
 
-const SECTIONS: { id: string; label: string; icon: LucideIcon; render: () => ReactNode }[] = [
-  { id: "general", label: "General", icon: Settings2, render: () => <GeneralSettings /> },
-  { id: "providers", label: "Providers", icon: Bot, render: () => <ProviderSettings /> },
-  { id: "autonomy", label: "Autonomy", icon: ShieldCheck, render: () => <AutonomySettings /> },
-  { id: "github", label: "GitHub", icon: GitPullRequest, render: () => <GithubSettings /> },
-  { id: "voice", label: "Voice", icon: Mic, render: () => <VoiceSettings /> },
-  { id: "images", label: "Image generation", icon: ImageIcon, render: () => <ImageSettings /> },
-  { id: "utility", label: "Utility model", icon: Cpu, render: () => <UtilitySettings /> },
+/** Settings sections; `owner` ones change the server, so only owners see them (§B.3). */
+const SECTIONS: {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  render: () => ReactNode;
+  owner?: boolean;
+}[] = [
+  {
+    id: "general",
+    label: "General",
+    icon: Settings2,
+    render: () => <GeneralSettings />,
+    owner: true,
+  },
+  {
+    id: "providers",
+    label: "Providers",
+    icon: Bot,
+    render: () => <ProviderSettings />,
+    owner: true,
+  },
+  {
+    id: "autonomy",
+    label: "Autonomy",
+    icon: ShieldCheck,
+    render: () => <AutonomySettings />,
+    owner: true,
+  },
+  {
+    id: "github",
+    label: "GitHub",
+    icon: GitPullRequest,
+    render: () => <GithubSettings />,
+    owner: true,
+  },
+  { id: "voice", label: "Voice", icon: Mic, render: () => <VoiceSettings />, owner: true },
+  {
+    id: "images",
+    label: "Image generation",
+    icon: ImageIcon,
+    render: () => <ImageSettings />,
+    owner: true,
+  },
+  {
+    id: "utility",
+    label: "Utility model",
+    icon: Cpu,
+    render: () => <UtilitySettings />,
+    owner: true,
+  },
   {
     id: "notifications",
     label: "Notifications",
     icon: Bell,
     render: () => <NotificationSettings />,
+    owner: true,
   },
-  { id: "network", label: "Network access", icon: Smartphone, render: () => <NetworkSettings /> },
+  {
+    id: "network",
+    label: "Network access",
+    icon: Smartphone,
+    render: () => <NetworkSettings />,
+    owner: true,
+  },
   { id: "members", label: "Members", icon: Users, render: () => <MembersSettings /> },
   ...(platform.capabilities.osIntegration
     ? [{ id: "desktop", label: "App", icon: AppWindow, render: () => <DesktopSettings /> }]
@@ -100,7 +151,9 @@ const SECTIONS: { id: string; label: string; icon: LucideIcon; render: () => Rea
 
 /** Settings with a left section nav. */
 export function SettingsPage({ section }: { section: string }) {
-  const active = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
+  const isOwner = useCan("owner", undefined);
+  const sections = isOwner ? SECTIONS : SECTIONS.filter((s) => !s.owner);
+  const active = sections.find((s) => s.id === section) ?? sections[0];
   const navigate = useNavigate();
   return (
     <>
@@ -116,7 +169,7 @@ export function SettingsPage({ section }: { section: string }) {
           }
           data-testid="settings-section-picker"
         >
-          {SECTIONS.map((s) => (
+          {sections.map((s) => (
             <option key={s.id} value={s.id}>
               {s.label}
             </option>
@@ -125,7 +178,7 @@ export function SettingsPage({ section }: { section: string }) {
       </div>
       <div className="flex min-h-0 flex-1">
         <nav className="hidden w-56 shrink-0 space-y-0.5 border-r border-border p-3 md:block">
-          {SECTIONS.map((s) => (
+          {sections.map((s) => (
             <Link
               key={s.id}
               to="/settings/$section"

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useClient } from "@/lib/api";
+import { useCanOnSession } from "@/lib/members";
 import { cn } from "@/lib/utils";
 import { Markdown } from "../markdown";
 
@@ -39,6 +40,9 @@ export function PlanApprovalCard({
       }),
     onError: (e) => toast.error("Couldn't send the decision", { description: e.message }),
   });
+
+  // Answering is an Operator's (§B.3); Viewers see the request and who answers it.
+  const mayAnswer = useCanOnSession("operator", sessionId);
 
   if (item.status !== "in_progress") {
     const approved = item.decision !== undefined && item.decision !== "deny";
@@ -100,7 +104,10 @@ export function PlanApprovalCard({
             className="min-h-20 text-[13px]"
           />
         )}
-        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+        {!mayAnswer && (
+          <p className="text-2xs text-muted-foreground">Waiting for an Operator to answer.</p>
+        )}
+        <div className={cn("flex flex-wrap items-center gap-2 pt-0.5", !mayAnswer && "hidden")}>
           {feedback === null ? (
             <>
               <Button

@@ -296,7 +296,9 @@ export function securityMiddleware(opts: SecurityOptions): MiddlewareHandler {
     const bearer = bearerOf(c);
     if (tokensEqual(bearer, opts.token)) return proceedAs(c, next, owner());
     // A connected agent on this machine uses its own token, and acts as itself, not the owner.
+    // The desktop app's own channels (loopback-only paths) stay the install token's.
     if (bearer && opts.principals?.claims(bearer)) {
+      if (opts.loopbackOnlyPaths?.has(c.req.path)) return c.text("Not found", 404);
       const check = opts.principals.bearer(bearer, c);
       return "principal" in check ? proceedAs(c, next, check.principal) : refuseBearer(c, check);
     }

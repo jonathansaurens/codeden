@@ -14,6 +14,7 @@ import { Hono } from "hono";
 import { rowToAutomation } from "../db/rows";
 import { automations, inboxItems, sessions } from "../db/schema";
 import type { MemberAuth } from "../members/auth";
+import { routeGate } from "../members/route-gate";
 import type { AppServices } from "../services/container";
 import { badRequest } from "../services/errors";
 import { archivedSessionCounts, snapshotSessions } from "../services/sessions/archived";
@@ -65,6 +66,8 @@ export function createApi(ctx: ApiContext) {
   return (
     new Hono()
       .onError((error, c) => errorResponse(error, c, ctx.log))
+      // Roles (§B.3): every route below is checked against `members/route-rules.ts`.
+      .use("*", routeGate(s))
       .get("/health", (c) => {
         const body: HealthResponse = {
           ok: true,

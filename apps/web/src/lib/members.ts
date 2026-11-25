@@ -8,6 +8,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useClient } from "./api";
+import { useSnapshotData } from "./queries";
 
 export const meKey = ["members", "me"] as const;
 export const memberSummariesKey = ["members", "summaries"] as const;
@@ -59,3 +60,12 @@ export const ROLE_LABEL: Record<MemberRole, string> = {
   operator: "Operator",
   owner: "Owner",
 };
+
+/** `useCan` for a session: its project's role (the orchestrator's: the role across projects). */
+export function useCanOnSession(need: MemberRole, sessionId: string): boolean {
+  const projectId = useSnapshotData(
+    (s) => s.sessions.find((x) => x.id === sessionId)?.projectId,
+    undefined,
+  );
+  return useCan(need, projectId ?? null);
+}

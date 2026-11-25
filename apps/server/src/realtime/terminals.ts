@@ -31,13 +31,33 @@ export class TerminalBridge {
   private readonly sockets = new Map<string, Set<WSContext>>();
   /** The runner of each terminal opened or attached through this server. */
   private readonly runners = new Map<string, RunnerPort>();
+  /** The session each terminal was opened for (none: a terminal outside any session). */
+  private readonly sessionOf = new Map<string, string | null>();
 
   constructor(private readonly deps: TerminalBridgeDeps) {}
 
-  handlers(query: TerminalQuery): WSEvents {
+  /**
+   * `access` (§B.3): `full` drives the terminal; `read` only attaches and watches, and drops
+   * input, resizes and kills. `strict` (any member but an owner of everything) attaches only to
+   * a terminal this server opened for the session named in the query.
+   */
+  handlers(
+    query: TerminalQuery,
+    opts: { access?: "full" | "read"; strict?: boolean } = {},
+  ): WSEvents {
     let ptyId: string | undefined;
+    const readOnly = opts.access === "read";
     return {
       onOpen: (_event, ws) => {
+        if (
+          opts.strict &&
+          query.ptyId &&
+          this.sessionOf.get(query.ptyId) !== (query.sessionId ?? null)
+        ) {
+          control(ws, { type: "error", message: "No such terminal" });
+          ws.close(1008, "terminal not allowed");
+          return;
+        }
         // Set before `opened` is sent, so input the client sends right away is not dropped.
         void this.open(ws, query, (id) => {
           ptyId = id;
@@ -45,6 +65,8 @@ export class TerminalBridge {
       },
       onMessage: (event, ws) => {
         if (!ptyId) return;
+        if (readOnly)
+          return control(ws, { type: "error", message: "This terminal is read-only for you" });
         let msg: TerminalClientMessage;
         try {
           msg = TerminalClientMessage.parse(JSON.parse(String(event.data)));
@@ -100,6 +122,7 @@ export class TerminalBridge {
       const ptyId = `pty-${randomUUID()}`;
       const runner = this.runnerFor(query.sessionId);
       this.runners.set(ptyId, runner);
+      this.sessionOf.set(ptyId, query.sessionId ?? null);
       this.attach(ptyId, ws);
       const opened = await runner.request({
         name: "pty.open",
