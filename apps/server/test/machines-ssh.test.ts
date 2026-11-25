@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -157,7 +157,7 @@ describe("a machine over ssh", () => {
     const record = machineRecord();
     const session = server.services.sessionRepo.get(id);
     expect(session.runnerId).toBe(record?.runnerId);
-    // Cloned in the machine's runner home, from GitHub (the broker's bare repository here).
+    // A worktree of the machine's clone of the project, from GitHub (a bare repository here).
     expect(relative(machine.runnerHome, session.cwd)).not.toMatch(/^\.\./);
     expect(git(session.cwd, "remote", "get-url", "origin")).toBe(bare);
     await waitUntil(() => server.services.sessionRepo.get(id).status === "idle");
@@ -199,18 +199,44 @@ describe("a machine over ssh", () => {
     expect(inUse.status).toBe(409);
     expect(inUse.body.error.code).toBe("machine_in_use");
 
-    await server.services.worktreeCleanup.archive(id);
+    // A commit on the session's branch, never pushed: archiving removes the worktree, and the
+    // branch stays in the machine's clone of the project, the only copy of that commit.
     const { cwd } = server.services.sessionRepo.get(id);
-    writeFileSync(join(cwd, "draft.md"), "only here\n");
+    writeFileSync(join(cwd, "work.md"), "only here\n");
+    git(cwd, "add", "-A");
+    git(cwd, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "work");
+    const archived = await server.services.worktreeCleanup.archive(id);
+    expect(archived.worktree.status).toBe("removed");
     const unpushed = await api("DELETE", "/machines/vps-1");
     expect(unpushed.status).toBe(409);
     expect(unpushed.body.error.code).toBe("machine_unpushed");
-    expect(unpushed.body.error.message).toContain("uncommitted changes in 1 file");
+    expect(unpushed.body.error.message).toContain("1 unpushed commit on codeden/");
 
     const forced = await api("DELETE", "/machines/vps-1?force=true");
     expect(forced.status).toBe(200);
     expect(machineRecord()?.state).toBe("deleted");
     await waitUntil(() => machine.runnerPid() === undefined);
+  });
+
+  it("keeps one clone per project, with a worktree per session that archiving removes", async () => {
+    const first = await startSession("first");
+    const second = await startSession("second");
+    await waitUntil(() =>
+      [first, second].every((id) => server.services.sessionRepo.get(id).status === "idle"),
+    );
+    const repo = join(machine.runnerHome, "repos");
+    for (const id of [first, second]) {
+      const session = server.services.sessionRepo.get(id);
+      expect(relative(join(machine.runnerHome, "wt"), session.cwd)).not.toMatch(/^\.\./);
+      expect(session.worktreePath).toBe(session.cwd);
+      expect(
+        relative(repo, git(session.cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")),
+      ).not.toMatch(/^\.\./);
+    }
+    const archived = await server.services.worktreeCleanup.archive(first);
+    expect(archived.worktree.status).toBe("removed");
+    expect(existsSync(server.services.sessionRepo.get(first).cwd)).toBe(false);
+    expect(existsSync(server.services.sessionRepo.get(second).cwd)).toBe(true);
   });
 
   it("is linked again after a server restart, even when its runner stopped meanwhile", async () => {

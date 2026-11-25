@@ -70,7 +70,8 @@ Each failure says what to fix, for example "Node.js 24 or newer is needed on vps
 - Every command runs as `npx -y codeden@<exact server version> …`, so upgrading CodeDen upgrades
   its machines on their next connection. A runner of another version finishes or stops its
   turns, exits, and the current one starts.
-- The runner lives in `~/.codeden-runner` on the machine (its journal, lock file and clones),
+- The runner lives in `~/.codeden-runner` on the machine (its journal, lock file, clones and
+  worktrees),
   separate from any CodeDen you also run there. It starts detached
   (`codeden runner --home ~/.codeden-runner --detach`) and keeps running when the connection
   drops or your main CodeDen stops, so agents keep working.
@@ -87,9 +88,11 @@ Each failure says what to fix, for example "Node.js 24 or newer is needed on vps
 
 The orchestrator and PMs always stay on Home. A fork stays on its source session's machine.
 
-Sessions on a machine work in a clone of the repository there. Files, diffs, checkpoints,
-terminals and the browser screencast work as on Home; the desktop app's native browser view is
-Home only.
+Each machine keeps one clone of each project (`~/.codeden-runner/repos/<project>`), fetched
+from GitHub before every new session, and gives each session a worktree of it
+(`~/.codeden-runner/wt/<project>/<session>`), as Home does. Archiving a session removes its
+worktree; its branch stays in the machine's clone. Files, diffs, checkpoints, terminals and the
+browser screencast work as on Home; the desktop app's native browser view is Home only.
 
 ## Removing a machine
 

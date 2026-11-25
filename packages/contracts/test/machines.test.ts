@@ -8,6 +8,8 @@ import {
   MachinesResponse,
   MachineWeight,
   Project,
+  RunnerCommand,
+  RunnerCommandResults,
   RunnerRecord,
   SessionPlacement,
   SshDestination,
@@ -123,5 +125,31 @@ describe("machines", () => {
     const req = roundTrip(StartSessionRequest, { projectId: "p1", machine: "vps-1" });
     expect(req.machine).toBe("vps-1");
     expect(StartSessionRequest.safeParse({ projectId: "p1", machine: "a b" }).success).toBe(false);
+  });
+});
+
+describe("per-project clones on a machine (A2)", () => {
+  const prepare = {
+    name: "workspace.prepare",
+    sessionId: "s1",
+    strategy: "clone",
+    remoteUrl: "https://github.com/o/r.git",
+    perProject: true,
+    projectSlug: "demo",
+  };
+
+  it("round-trips the command and a result naming the project's clone", () => {
+    roundTrip(RunnerCommand, prepare);
+    roundTrip(RunnerCommandResults["workspace.prepare"], {
+      cwd: "/home/dev/.codeden-runner/wt/demo/s1",
+      branch: "codeden/x",
+      created: true,
+      repoPath: "/home/dev/.codeden-runner/repos/demo",
+    });
+  });
+
+  it("needs the project's slug to name the clone", () => {
+    const { projectSlug: _s, ...noSlug } = prepare;
+    expect(RunnerCommand.safeParse(noSlug).success).toBe(false);
   });
 });

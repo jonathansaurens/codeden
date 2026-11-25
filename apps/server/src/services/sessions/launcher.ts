@@ -167,6 +167,7 @@ export class SessionLauncher {
       ...m,
       workspaceStart: null,
       ...(ws.fallback ? { workspaceFallback: ws.fallback } : {}),
+      ...(ws.repoPath ? { cloneRepoPath: ws.repoPath } : {}),
     }));
     const brief = this.pendingBrief(sessionId);
     const input = brief ? withHandoffBrief(brief, opts.input) : opts.input;
@@ -237,6 +238,8 @@ export class SessionLauncher {
     }
     const project = this.deps.projects.get(session.projectId);
     const runner = runnerForSession(this.deps, session.id);
+    // On a machine the worktree is one of its clone's: made again from the session's branch.
+    if (clonesWorkspaces(runner)) return this.restoreCloneWorktree(runner, session, project);
     const result = await runner.request(
       {
         name: "workspace.prepare",
@@ -263,6 +266,35 @@ export class SessionLauncher {
       session: updated,
       setupNote: await settleSetup(this.gate(runner), updated, project, result),
     };
+  }
+
+  /** `restoreWorktree` on a machine: a new worktree of its project clone, on the same branch. */
+  private async restoreCloneWorktree(
+    runner: RunnerPort,
+    session: Session,
+    project: Project,
+  ): Promise<{ session: Session; setupNote: string | null }> {
+    const ws = await prepareCloneWorkspace(
+      this.deps.git,
+      runner,
+      session,
+      project,
+      {
+        mode: "worktree",
+        branch: session.branch ?? undefined,
+        baseRef: session.baseBranch ?? undefined,
+      },
+      { fork: false, gate: this.gate(runner) },
+    );
+    this.deps.log?.(`session ${session.id}: recreated worktree ${ws.cwd}`);
+    const updated = this.deps.repo.update(session.id, (s) => ({
+      ...s,
+      cwd: ws.cwd,
+      worktreePath: ws.worktreePath,
+      branch: ws.branch ?? s.branch,
+      worktreeRemovedAt: null,
+    }));
+    return { session: updated, setupNote: ws.setupNote };
   }
 
   /** What settles setup the runner held (`setup-gate.ts`). */

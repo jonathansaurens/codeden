@@ -45,6 +45,12 @@ export interface RunnerPlacement {
   platform?: string;
   /** Its backend; one that isn't `local` gets cloned workspaces at paths it chooses (§9.1). */
   backend?: RunnerBackendId;
+  /**
+   * It serves many sessions (a machine's runner): it keeps one clone per project with a
+   * worktree per session instead of a clone per session (`docs/machines-teams-and-agents.md`
+   * §A.4). Decided by the server's record, never by what the runner reports.
+   */
+  projectClones?: boolean;
 }
 
 /**

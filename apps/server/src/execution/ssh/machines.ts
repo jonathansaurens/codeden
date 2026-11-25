@@ -280,6 +280,7 @@ export class MachineService {
         id: sessions.id,
         archivedAt: sessions.archivedAt,
         cwd: sessions.cwd,
+        startMeta: sessions.startMeta,
       })
       .from(sessions)
       .where(eq(sessions.runnerId, record.runnerId))
@@ -308,7 +309,11 @@ export class MachineService {
       const kept = await this.unpushedOn(
         port,
         label,
-        placed.map((s) => s.cwd),
+        // Each session's folder, and the project clones their branches live in (§A.4).
+        placed.flatMap((s) => [
+          s.cwd,
+          ...(s.startMeta?.cloneRepoPath ? [s.startMeta.cloneRepoPath] : []),
+        ]),
       );
       if (kept) throw new ServiceError(409, "machine_unpushed", kept);
     }

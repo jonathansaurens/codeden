@@ -15,6 +15,8 @@ export interface PreparedWorkspace {
   fallback: string | null;
   /** A failed setup command, told to the agent with its first input. */
   setupNote: string | null;
+  /** On a runner with per-project clones: the project's clone the worktree belongs to. */
+  repoPath?: string | null;
 }
 
 /**
@@ -62,6 +64,8 @@ export async function prepareCloneWorkspace(
       ? `codeden/${slugWords(session.title ?? session.purpose, 5, 40)}-${session.id.slice(0, 4)}`
       : baseRef);
   const credential = await git.credentialFor(runner, remoteUrl);
+  // A machine keeps one clone per project, and the session gets a worktree of it (§A.4).
+  const perProject = runner.remote?.().projectClones === true && req.mode === "worktree";
   const result = await runner.request(
     {
       name: "workspace.prepare",
@@ -74,12 +78,16 @@ export async function prepareCloneWorkspace(
       setupCommands: req.setupCommands ?? [],
       seenSetups: seenSetups(project),
       ...(credential ? { credential } : {}),
+      ...(perProject ? { perProject: true, projectSlug: project.slug } : {}),
     },
     opts.gate.timeoutMs,
   );
   return {
     cwd: result.cwd,
-    worktreePath: null,
+    // A worktree of the machine's clone is removed with its session, as on Home; a clone of
+    // its own lives as long as its sandbox.
+    worktreePath: perProject ? result.cwd : null,
+    repoPath: result.repoPath ?? null,
     branch: result.branch,
     baseBranch: req.mode === "worktree" ? (baseRef ?? null) : null,
     fallback: null,

@@ -81,6 +81,11 @@ export type StoredStartMeta = SessionStartMeta & {
    * its usage limit (`RoleFallback`): where the role goes back to, and when.
    */
   fallback?: RoleFallback | null;
+  /**
+   * On a machine (`docs/machines-teams-and-agents.md` §A.4): the project's clone there that the
+   * session's worktree belongs to, for removing and recreating the worktree.
+   */
+  cloneRepoPath?: string | null;
   /** A fork's workspace plan (§9): prepared before any start until the worktree exists. */
   forkStart?: ForkStart | null;
   /**

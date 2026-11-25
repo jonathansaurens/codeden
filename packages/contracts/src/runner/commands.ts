@@ -173,10 +173,25 @@ export const RunnerCommand = z.discriminatedUnion("name", [
       remoteUrl: z.string().min(1).max(2048).optional(),
       /** `clone`: a shallow clone of this many commits. */
       depth: z.int().positive().optional(),
+      /**
+       * `clone` on a runner that serves many sessions (a machine's,
+       * `docs/machines-teams-and-agents.md` §A.4): keep one clone per project in
+       * `<runnerHome>/repos/<projectSlug>`, fetched before each session, and give the session a
+       * worktree of it in `<runnerHome>/wt/<projectSlug>/<sessionShort>` instead of a clone of its
+       * own. Needs `projectSlug`. The result's `repoPath` is the project's clone.
+       */
+      perProject: z.boolean().optional(),
       /** `clone` and `fetch`: the credential for that git operation only (§9.2). */
       credential: GitCredential.optional(),
     })
     .superRefine((cmd, ctx) => {
+      if (cmd.perProject && !cmd.projectSlug) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["projectSlug"],
+          message: "perProject needs projectSlug",
+        });
+      }
       if (cmd.strategy === "clone" ? !cmd.remoteUrl : !cmd.repoPath) {
         ctx.addIssue({
           code: "custom",
@@ -428,6 +443,8 @@ export const RunnerCommandResults = {
     cwd: z.string(),
     branch: z.string().nullable(),
     created: z.boolean(),
+    /** `clone` with `perProject`: the project's clone that `cwd` is a worktree of. */
+    repoPath: z.string().optional(),
     /** Parsed `.codeden/project.json`, when present and valid. */
     config: ProjectConfigFile.nullable().optional(),
     /** Setup commands that ran, in order (stops at the first failure). */

@@ -181,7 +181,12 @@ export class RunnerHub implements RunnerRouter {
     // Any runner but the home runner may be a sandbox's, on another disk (§10).
     const remote = record.home
       ? undefined
-      : () => ({ platform: client.hostInfo?.platform, backend: client.hostInfo?.backend });
+      : () => ({
+          platform: client.hostInfo?.platform,
+          backend: client.hostInfo?.backend,
+          // A machine's runner outlives its sessions and serves many of them (§A.4).
+          projectClones: record.backend === "ssh",
+        });
     this.entries.set(spec.id, { spec, client, port: runnerPort(() => client, describe, remote) });
     return client;
   }
