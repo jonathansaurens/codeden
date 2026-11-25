@@ -276,4 +276,22 @@ describe("a machine over ssh", () => {
     await waitUntil(() => replies(id).some((text) => text.includes("after the restart")));
     expect(server.services.sessionRepo.get(id).runnerId).toBe(record?.runnerId);
   });
+
+  it("raises an inbox item when the machine can't be reached for a session", async () => {
+    await server.close();
+    await machine.stopRunner();
+    machine.setReachable(false);
+    server = await startServer(serverOptions());
+    const id = await startSession("nowhere to run");
+    expect(server.services.sessionRepo.get(id).status).toBe("failed");
+    const item = server.services.inbox.list().find((i) => i.sessionId === id);
+    expect(item?.kind).toBe("run_failed");
+    expect(item?.body).toContain("Machine vps-1 can't be reached for this session");
+    expect(item?.body).toContain("Connection refused");
+
+    // Back on: the client reconnects on its own, starting the runner again.
+    machine.setReachable(true);
+    const client = server.runners.client(machineRecord()?.id as string);
+    await waitUntil(() => client?.status.state === "connected");
+  });
 });

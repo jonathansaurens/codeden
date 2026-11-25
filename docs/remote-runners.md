@@ -546,6 +546,8 @@ Each phase is one pull request well under 5,000 changed lines, written as an iss
 
 ### Phase 5: runner picker and runner health
 
+> **Partly built with machines** ([machines.md](machines.md)): Settings › Machines (state, version, platform, providers, live capacity, preference), a machine chip in the session header, an inbox item when a machine can't be reached for a session, and no native browser views on runners other than Home. The Docker picker in New session and Settings › Runners for sandboxes are still to do.
+
 **Title:** `feat(web): choose where a session runs, and see runner health`
 
 **Scope.**

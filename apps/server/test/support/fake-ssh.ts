@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isProcessAlive } from "../../src/runner/lock";
@@ -24,6 +24,8 @@ export interface FakeMachine {
   runnerPid(): number | undefined;
   /** Stop the machine's runner, as a reboot would. */
   stopRunner(): Promise<void>;
+  /** Make `ssh` fail to connect, as for a machine that is off, or connect again. */
+  setReachable(reachable: boolean): void;
 }
 
 /**
@@ -36,6 +38,7 @@ export function fakeMachine(base: string): FakeMachine {
   const home = join(base, "machine-home");
   const bin = join(base, "machine-bin");
   const log = join(base, "ssh.log");
+  const offline = join(base, "machine-offline");
   mkdirSync(home, { recursive: true });
   mkdirSync(bin, { recursive: true });
   symlinkSync(process.execPath, join(bin, "node"));
@@ -52,6 +55,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 shift
+if [ -e '${offline}' ]; then
+  echo "ssh: connect to host vps-1 port 22: Connection refused" >&2
+  exit 255
+fi
 printf '%s\\n' "$*" >> '${log}'
 cd '${home}'
 HOME='${home}' PATH='${bin}:/usr/bin:/bin' exec sh -c "$*"
@@ -81,6 +88,10 @@ HOME='${home}' PATH='${bin}:/usr/bin:/bin' exec sh -c "$*"
       }
     },
     runnerPid,
+    setReachable: (reachable) => {
+      if (reachable) rmSync(offline, { force: true });
+      else writeFileSync(offline, "");
+    },
     stopRunner: async () => {
       const pid = runnerPid();
       if (pid === undefined) return;

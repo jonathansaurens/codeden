@@ -1,6 +1,6 @@
 import type { Machine, RunnerRecord } from "@codeden/contracts";
 import { describe, expect, it } from "vitest";
-import { withLiveState } from "@/lib/machines";
+import { capacityLine, sessionMachine, withLiveState } from "@/lib/machines";
 import {
   buildStartRequest,
   type DraftDefaults,
@@ -106,5 +106,51 @@ describe("withLiveState", () => {
 
   it("keeps the query's machine when no runner matches its id", () => {
     expect(withLiveState([machine], [runner({ id: "other", state: "failed" })])).toEqual([machine]);
+  });
+});
+
+describe("the session's machine and capacity", () => {
+  const record = (over: Partial<RunnerRecord>): RunnerRecord => ({
+    id: "machine-vps-1",
+    backend: "ssh",
+    home: false,
+    runnerId: "runner-vps-1",
+    sandboxRef: "me@vps",
+    label: "vps-1",
+    weight: 50,
+    projectId: null,
+    sessionId: null,
+    state: "connected",
+    version: null,
+    imageVersion: null,
+    createdAt: "2026-11-20T08:00:00.000Z",
+    lastSeenAt: null,
+    lastError: null,
+    ...over,
+  });
+  const home = record({ id: "home", backend: "local", home: true, runnerId: "runner-local" });
+  const vps = record({});
+
+  it("finds the machine by the session's runner id, never Home or another backend", () => {
+    expect(sessionMachine("runner-vps-1", [home, vps])).toBe(vps);
+    expect(sessionMachine("runner-local", [home, vps])).toBeUndefined();
+    expect(sessionMachine("machine-vps-1", [home, vps])).toBeUndefined();
+    expect(sessionMachine(null, [home, vps])).toBeUndefined();
+    const docker = record({ backend: "docker", runnerId: "runner-box" });
+    expect(sessionMachine("runner-box", [docker])).toBeUndefined();
+  });
+
+  it("reads capacity compactly", () => {
+    const GiB = 1024 ** 3;
+    expect(
+      capacityLine({
+        cpuCount: 4,
+        cpuBusy: 0.234,
+        totalMemoryBytes: 8 * GiB,
+        availableMemoryBytes: 3.14 * GiB,
+        sampledAt: "2026-11-25T08:00:00.000Z",
+      }),
+    ).toBe("4 cores · CPU 23% · 3.1 of 8 GiB free");
+    expect(capacityLine(null)).toBe("Capacity unknown");
   });
 });

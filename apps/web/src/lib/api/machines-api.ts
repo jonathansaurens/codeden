@@ -1,11 +1,12 @@
-import { AddMachineResponse, Machine, MachinesResponse } from "@codeden/contracts";
+import { AddMachineResponse, Machine, MachinesResponse, MachineWeight } from "@codeden/contracts";
+import { z } from "zod";
 import type { CodeDenClient } from "./client";
 import type { Fetcher } from "./http";
 
 /** The client's machine calls (`/api/machines`). */
 export type MachinesMethods = Pick<
   CodeDenClient,
-  "machines" | "addMachine" | "setMachineWeight" | "removeMachine"
+  "machines" | "addMachine" | "setMachineWeight" | "setHomeWeight" | "removeMachine"
 >;
 
 /**
@@ -20,6 +21,13 @@ export function httpMachinesApi(http: Fetcher): MachinesMethods {
       http.post("/machines", req, (v) => AddMachineResponse.parse(v)).then((r) => r.machine),
     setMachineWeight: (id, weight) =>
       http.call("PATCH", path(id), { weight }, (v) => Machine.parse(v)),
+    setHomeWeight: (weight) =>
+      http.call(
+        "PUT",
+        "/machines/home/weight",
+        { weight },
+        (v) => z.object({ weight: MachineWeight }).parse(v).weight,
+      ),
     async removeMachine(id, opts) {
       await http.call("DELETE", `${path(id)}${opts?.force ? "?force=true" : ""}`);
     },

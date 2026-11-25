@@ -51,6 +51,10 @@ export interface RunnerPlacement {
    * §A.4). Decided by the server's record, never by what the runner reports.
    */
   projectClones?: boolean;
+  /** A machine's label, when the runner is a machine's (§A.3); absent otherwise. */
+  machine?: string;
+  /** Why the last connection attempt failed, safe to show; null when none did. */
+  lastError?: string | null;
 }
 
 /**

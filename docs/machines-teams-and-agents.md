@@ -107,6 +107,14 @@ Accept when:
 
 **A4 `feat(web): machine chip, capacity and inbox items`** (the rest of remote-runners Phase 5).
 
+**As built (2026-11-25).** Part A is built as above ([machines.md](machines.md)), with these choices where this plan was silent:
+- Worktrees on a machine live in `~/.codeden-runner/wt/<project>/<session>`, beside the clones in `repos/`.
+- The scorer breaks a tie for Home, then the higher preference, then the label that sorts first. Capacity is asked only of machines that could take the session.
+- On Linux, `host.resources` honours cgroup v2 limits (`cpu.max`, `cpu.stat`, `memory.max`, `memory.current` less `inactive_file`), so a container reports what it may use rather than the whole host.
+- Automatic may be set on any project; one that isn't on GitHub always lands on Home.
+- `CODEDEN_MACHINE_COMMAND` replaces `npx -y codeden@<version>` for development builds (owner only, shown in Settings › Machines).
+- Not yet: forking a session that runs on a machine (refused as for sandboxes), and the slow-suite test against a real localhost `sshd`.
+
 ## Part B. Teams
 
 > **Needs the maintainer's decision.** DESIGN §3 says "No accounts or license gating". This plan reads that as "no CodeDen-hosted accounts": members are local to a self-hosted server and nothing is hosted or licensed. It also replaces §15.1's single owner password with members. Until agreed, Part B lives in the fork.

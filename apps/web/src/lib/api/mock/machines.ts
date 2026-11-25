@@ -1,6 +1,7 @@
 import {
   AddMachineRequest,
   DEFAULT_MACHINE_WEIGHT,
+  type HostResources,
   type Machine,
   type MachineWeight,
   type RunnerRecord,
@@ -13,6 +14,22 @@ const later = <T>(value: T, ms: number): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(structuredClone(value)), ms));
 
 const COMMAND = "npx -y codeden@0.1.0";
+const GIB = 1024 ** 3;
+
+/**
+ * A sample of a host's capacity that drifts a little on every poll, so the Machines page looks
+ * live: CPU busy moves around `cpu`, free memory around `freeGib`.
+ */
+function sample(cores: number, totalGib: number, cpu: number, freeGib: number): HostResources {
+  const jitter = (spread: number) => (Math.random() - 0.5) * spread;
+  return {
+    cpuCount: cores,
+    cpuBusy: Math.min(1, Math.max(0, cpu + jitter(0.2))),
+    totalMemoryBytes: totalGib * GIB,
+    availableMemoryBytes: Math.min(totalGib, Math.max(0.2, freeGib + jitter(1))) * GIB,
+    sampledAt: new Date().toISOString(),
+  };
+}
 
 /** The sample machine, matching the `machine-vps-1` runner in the world fixture. */
 const vps1: Machine = {
@@ -71,6 +88,7 @@ function runnerOf(m: Machine): RunnerRecord {
 export function mockMachinesApi(world: MockWorld): MachinesMethods {
   let machines: Machine[] = [structuredClone(vps1)];
   let unpushedWarned = false;
+  let homeWeight: MachineWeight = DEFAULT_MACHINE_WEIGHT;
   const find = (id: string) => {
     const m = machines.find((x) => x.id === id);
     if (!m) throw new ApiRequestError(404, "not_found", `No machine ${id}`);
@@ -83,11 +101,18 @@ export function mockMachinesApi(world: MockWorld): MachinesMethods {
     ]);
 
   return {
-    machines: () =>
-      later(
-        { machines, command: COMMAND, homeWeight: DEFAULT_MACHINE_WEIGHT, homeResources: null },
-        120,
-      ),
+    machines: () => {
+      machines = machines.map((m) =>
+        m.state === "connected" ? { ...m, resources: sample(4, 8, 0.25, 3.2) } : m,
+      );
+      const homeResources = sample(12, 32, 0.4, 14);
+      return later({ machines, command: COMMAND, homeWeight, homeResources }, 120);
+    },
+
+    async setHomeWeight(weight) {
+      homeWeight = weight;
+      return later(weight, 80);
+    },
 
     async addMachine(input) {
       const req = AddMachineRequest.parse(input);

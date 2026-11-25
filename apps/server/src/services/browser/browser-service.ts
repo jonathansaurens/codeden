@@ -11,7 +11,13 @@ import type {
   Settings,
 } from "@codeden/contracts";
 import { errorMessage, ServiceError } from "../errors";
-import { type RunnerDeps, runnerErrorCode, runnerForSession, toServiceError } from "../runner-port";
+import {
+  isRemoteRunner,
+  type RunnerDeps,
+  runnerErrorCode,
+  runnerForSession,
+  toServiceError,
+} from "../runner-port";
 import type { SessionRepo } from "../sessions/repo";
 import { AgentActivity } from "./agent-activity";
 import { BrowserHostLink } from "./browser-host";
@@ -172,6 +178,9 @@ export class BrowserService {
    */
   private async nativeRelay(sessionId: string): Promise<BrowserRelayEndpoint | undefined> {
     if (!this.host.available) return undefined;
+    // Native views are local only: a runner on another disk (a sandbox, a machine) can't reach
+    // the desktop app's relay, so its browser stays the streamed one (remote-runners §12).
+    if (isRemoteRunner(runnerForSession(this.deps, sessionId))) return undefined;
     if (this.deps.settings && !this.deps.settings().desktop.nativeBrowser) return undefined;
     if ((await this.tabs(sessionId)).open) return undefined;
     try {

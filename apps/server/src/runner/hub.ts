@@ -186,6 +186,8 @@ export class RunnerHub implements RunnerRouter {
           backend: client.hostInfo?.backend,
           // A machine's runner outlives its sessions and serves many of them (§A.4).
           projectClones: record.backend === "ssh",
+          ...(record.backend === "ssh" ? { machine: record.label ?? record.id } : {}),
+          lastError: client.status.lastError,
         });
     this.entries.set(spec.id, { spec, client, port: runnerPort(() => client, describe, remote) });
     return client;
@@ -286,9 +288,15 @@ export class RunnerHub implements RunnerRouter {
   }
 }
 
-/** "Runner rn-1 (docker)", with its journal id when known: for errors and logs. */
+/**
+ * "Runner rn-1 (docker)", or "Machine vps-1" for a machine, with its journal id when known: for
+ * errors and logs.
+ */
 export function describeRunner(record: RunnerRecord, withRunnerId = false): string {
   const id = withRunnerId && record.runnerId ? `, runner ${record.runnerId}` : "";
+  if (record.backend === "ssh" && record.label) {
+    return id ? `Machine ${record.label} (${id.slice(2)})` : `Machine ${record.label}`;
+  }
   return `Runner ${record.id} (${record.backend}${id})`;
 }
 

@@ -272,6 +272,8 @@ export interface CodeDenClient {
   addMachine(req: AddMachineRequest): Promise<Machine>;
   /** A machine's preference for automatic placement. */
   setMachineWeight(id: string, weight: MachineWeight): Promise<Machine>;
+  /** Home's own preference for automatic placement (`MachinesResponse.homeWeight`). */
+  setHomeWeight(weight: MachineWeight): Promise<MachineWeight>;
   /**
    * Remove a machine. Refused (409) with `machine_in_use` while sessions placed there aren't
    * archived, and with `machine_unpushed` while a clone there has unpushed work (`force` removes

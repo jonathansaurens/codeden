@@ -1,12 +1,13 @@
-import type { Machine, RunnerRecordState } from "@codeden/contracts";
-import { Server, Trash2 } from "lucide-react";
+import type { HostResources, Machine, MachineWeight, RunnerRecordState } from "@codeden/contracts";
+import { House, Server, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ago } from "@/lib/format";
-import { useMachines, withLiveState } from "@/lib/machines";
+import { capacityLine, useMachines, withLiveState } from "@/lib/machines";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connection";
 import { AddMachineForm } from "./machine-add-form";
+import { PREFERENCE_HELP, PreferencePicker } from "./machine-preference";
 import { RemoveMachineDialog } from "./machine-remove-dialog";
 import { SettingsSection } from "./settings-ui";
 
@@ -59,6 +60,9 @@ function MachineRow({ machine }: { machine: Machine }) {
           {machine.destination}
         </div>
         <div className="text-2xs text-muted-foreground">{machineFacts(machine)}</div>
+        <div className="text-2xs text-muted-foreground" data-testid="machine-capacity">
+          {capacityLine(machine.resources)}
+        </div>
         {machine.providers.length > 0 && (
           <div className="text-2xs leading-relaxed" data-testid="machine-providers">
             {ready.length > 0 ? (
@@ -76,9 +80,9 @@ function MachineRow({ machine }: { machine: Machine }) {
         {machine.lastError && (
           <p className="whitespace-pre-wrap text-2xs text-status-failed">{machine.lastError}</p>
         )}
-        {/* Live capacity and the placement preference join this row later. */}
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        <PreferencePicker machineId={machine.id} name={machine.label} weight={machine.weight} />
         <Button
           variant="ghost"
           size="icon-sm"
@@ -94,13 +98,41 @@ function MachineRow({ machine }: { machine: Machine }) {
   );
 }
 
+/** This computer, a candidate for automatic placement like any machine. */
+function HomeRow({
+  weight,
+  resources,
+}: {
+  weight: MachineWeight;
+  resources: HostResources | null;
+}) {
+  return (
+    <div className="flex items-start gap-4 px-4 py-3.5" data-testid="home-row">
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex items-center gap-2 text-[13.5px] font-medium">
+          <House className="size-3.5 text-muted-foreground" /> Home
+        </div>
+        <div className="text-2xs text-muted-foreground">This computer</div>
+        <div className="text-2xs text-muted-foreground" data-testid="home-capacity">
+          {capacityLine(resources)}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <PreferencePicker name="Home" weight={weight} />
+        {/* Lines up with the machines' Remove buttons. */}
+        <span className="size-7" />
+      </div>
+    </div>
+  );
+}
+
 /**
  * Settings > Machines: other computers CodeDen runs agent sessions on over SSH, each with a
- * runner of its own. Their state is live from the realtime runner list; the rest is what
- * `GET /api/machines` last reported.
+ * runner of its own, and Home. Their state is live from the realtime runner list; capacity and
+ * the rest are what `GET /api/machines` reports, polled while the section is open.
  */
 export function MachinesSettings() {
-  const query = useMachines();
+  const query = useMachines({ refetchInterval: 10_000 });
   const runners = useConnectionStore((s) => s.runners);
   const machines = useMemo(
     () => withLiveState(query.data?.machines ?? [], runners),
@@ -112,6 +144,14 @@ export function MachinesSettings() {
         title="Machines"
         description="Other computers that run agent sessions, reached with your own ssh. Each clones a GitHub project's repository and uses its own provider sign-ins."
       >
+        {query.data && (
+          <>
+            <p className="px-4 py-3 text-2xs leading-relaxed text-muted-foreground">
+              {PREFERENCE_HELP}
+            </p>
+            <HomeRow weight={query.data.homeWeight} resources={query.data.homeResources} />
+          </>
+        )}
         {query.error ? (
           <p className="px-4 py-3.5 text-2xs text-status-failed">{query.error.message}</p>
         ) : query.isPending ? (

@@ -503,7 +503,18 @@ export class SessionLauncher {
 
   private async requireRunner(runner: RunnerPort): Promise<void> {
     const ok = await runner.waitForConnection(this.deps.connectTimeoutMs ?? 15_000);
-    if (!ok) throw runnerUnavailable(runner);
+    if (ok) return;
+    // A machine that can't be reached: say which, why, and what to do (§A.5).
+    const where = runner.remote?.();
+    if (where?.machine) {
+      const why = where.lastError ? `: ${where.lastError}` : "";
+      throw new ServiceError(
+        503,
+        "machine_unreachable",
+        `Machine ${where.machine} can't be reached for this session${why}. CodeDen keeps trying to reconnect; check it in Settings › Machines, then send a message to try again.`,
+      );
+    }
+    throw runnerUnavailable(runner);
   }
 
   private async prepareWorkspace(

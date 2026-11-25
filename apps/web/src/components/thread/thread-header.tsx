@@ -46,6 +46,7 @@ import { hasRightPanel } from "@/lib/session-workspace";
 import { cn } from "@/lib/utils";
 import { useViewport } from "@/lib/viewport";
 import { useLayoutStore } from "@/stores/layout";
+import { MachineChip } from "./machine-chip";
 import { PlacementNote } from "./placement-note";
 import { SessionGithubBadges } from "./session-github-badges";
 
@@ -156,6 +157,7 @@ export function ThreadHeader({ session, running }: { session: Session; running: 
       </div>
 
       <div className="ml-1 hidden min-w-0 shrink items-center gap-1.5 overflow-hidden @[36rem]:flex">
+        <MachineChip runnerId={session.runnerId} />
         {session.branch && (
           <Chip
             className="hidden @[54rem]:inline-flex"

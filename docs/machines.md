@@ -65,6 +65,9 @@ Tailscale name. Before saving, CodeDen checks the machine:
 
 Each failure says what to fix, for example "Node.js 24 or newer is needed on vps-1; found 20.11".
 
+Settings › Machines lists each machine with its state, CodeDen version, platform, providers
+(signed in or why not), live capacity (cores, CPU busy, free memory), preference and sessions.
+
 ### What runs on the machine
 
 - Every command runs as `npx -y codeden@<exact server version> …`, so upgrading CodeDen upgrades
@@ -85,6 +88,10 @@ Each failure says what to fix, for example "Node.js 24 or newer is needed on vps
   default), **A machine** by name, or **Automatic**.
 - **Per session:** the New session form's **Runs on** picker overrides the project's setting.
 - **The PM** can choose in `start_session` (`machine: "vps-1"`, `"home"` or `"auto"`).
+
+A session on a machine shows the machine's name in its header, with its state. If the machine
+can't be reached when a session starts there, the session fails with an inbox item saying which
+machine and why; CodeDen keeps reconnecting, and the next message tries again.
 
 The orchestrator and PMs always stay on Home. A fork stays on its source session's machine.
 

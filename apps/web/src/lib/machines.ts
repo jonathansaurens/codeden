@@ -1,4 +1,4 @@
-import type { Machine, RunnerRecord } from "@codeden/contracts";
+import type { HostResources, Machine, RunnerRecord } from "@codeden/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useClient } from "./api";
 
@@ -9,12 +9,13 @@ export const machinesKey = ["machines"] as const;
  * Every machine and the command they run CodeDen with. A server without machines answers with an
  * error; callers treat that as none.
  */
-export function useMachines(opts: { enabled?: boolean } = {}) {
+export function useMachines(opts: { enabled?: boolean; refetchInterval?: number } = {}) {
   const client = useClient();
   return useQuery({
     queryKey: machinesKey,
     queryFn: () => client.machines(),
     enabled: opts.enabled ?? true,
+    refetchInterval: opts.refetchInterval,
     retry: false,
     staleTime: 30_000,
   });
@@ -38,4 +39,35 @@ export function withLiveState(machines: readonly Machine[], runners: readonly Ru
       lastSeenAt: r.lastSeenAt ?? m.lastSeenAt,
     };
   });
+}
+
+/**
+ * The machine a session runs on: the `ssh` runner record whose `runnerId` is the session's.
+ * Undefined for Home and for any other runner.
+ */
+export function sessionMachine(
+  runnerId: string | null | undefined,
+  runners: readonly RunnerRecord[],
+): RunnerRecord | undefined {
+  if (!runnerId) return undefined;
+  return runners.find((r) => r.backend === "ssh" && r.runnerId === runnerId);
+}
+
+const GIB = 1024 ** 3;
+const gib = (bytes: number) => {
+  const v = bytes / GIB;
+  return (v >= 10 ? v.toFixed(0) : v.toFixed(1)).replace(/\.0$/, "");
+};
+
+/** "4 cores · CPU 23% · 3.1 of 8 GiB free", or "Capacity unknown" before a host reports any. */
+export function capacityLine(resources: HostResources | null | undefined): string {
+  if (!resources) return "Capacity unknown";
+  const cores = Number.isInteger(resources.cpuCount)
+    ? String(resources.cpuCount)
+    : resources.cpuCount.toFixed(1);
+  return [
+    `${cores} core${resources.cpuCount === 1 ? "" : "s"}`,
+    `CPU ${Math.round(resources.cpuBusy * 100)}%`,
+    `${gib(resources.availableMemoryBytes)} of ${gib(resources.totalMemoryBytes)} GiB free`,
+  ].join(" · ");
 }
