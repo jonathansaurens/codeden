@@ -323,6 +323,7 @@ export const ROUTE_RULES: Readonly<Record<string, RouteRule>> = {
   "GET /members/me": member(),
   "GET /members/summaries": member(),
   "GET /members": w("server"),
+  "GET /members/activity": w("server"),
   "POST /members/invites": w("server"),
   "DELETE /members/invites/:inviteId": w("server"),
   "PATCH /members/:id": w("server"),

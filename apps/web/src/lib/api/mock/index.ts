@@ -409,6 +409,12 @@ export function createMockClient(opts: MockClientOptions = {}): CodeDenClient {
       return session;
     },
 
+    async getInboxItem(itemId) {
+      const item = world.snapshot.inbox.find((i) => i.id === itemId);
+      if (!item) throw new Error("Inbox item not found");
+      return item;
+    },
+
     async resolveInbox(itemId, resolution) {
       const item = world.snapshot.inbox.find((i) => i.id === itemId);
       if (!item) throw new Error("Inbox item not found");

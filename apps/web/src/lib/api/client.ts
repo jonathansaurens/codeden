@@ -210,6 +210,8 @@ export interface CodeDenClient {
   ): Promise<ResolveConflictResponse>;
 
   // Inbox (§11.1).
+  /** One item, open or not (who answered it, §B.4). */
+  getInboxItem(itemId: string): Promise<InboxItem>;
   resolveInbox(itemId: string, resolution: InboxResolution): Promise<InboxItem>;
   /**
    * Run a failed run's session again on its provider. Rejects with the reason (and fix) when

@@ -46,6 +46,7 @@ import { hasRightPanel } from "@/lib/session-workspace";
 import { cn } from "@/lib/utils";
 import { useViewport } from "@/lib/viewport";
 import { useLayoutStore } from "@/stores/layout";
+import { ActorLabel, PresenceAvatars } from "./attribution";
 import { SessionGithubBadges } from "./session-github-badges";
 
 function Chip({
@@ -151,7 +152,9 @@ export function ThreadHeader({ session, running }: { session: Session; running: 
           {statusLabel[session.status]}
           {session.archivedAt && " · Archived"}
         </span>
+        {session.status === "stopped" && <ActorLabel actor={session.stoppedBy} prefix="by " />}
       </div>
+      <PresenceAvatars sessionId={session.id} />
 
       <div className="ml-1 hidden min-w-0 shrink items-center gap-1.5 overflow-hidden @[36rem]:flex">
         {session.branch && (

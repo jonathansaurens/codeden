@@ -232,6 +232,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     access: {
       eventFilter: (principal) => eventFilterFor(services, principal),
       canWatch: (principal, sessionId) => canWatchSession(services, principal, sessionId),
+      team: () => services.members.isTeam(),
     },
   });
   const secrets =

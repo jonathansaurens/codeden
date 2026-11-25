@@ -21,7 +21,7 @@ import { Project } from "./entities/project";
 import { Session } from "./entities/session";
 import { FACTORY_EVENT_PAYLOADS } from "./factory-api";
 import { GITHUB_EVENT_PAYLOADS } from "./github";
-import { MemberDeletedPayload, MemberEventPayload } from "./members";
+import { Actor, MemberDeletedPayload, MemberEventPayload } from "./members";
 import { ConflictRecord, Notice } from "./orchestration";
 import { PtyId } from "./runner/commands";
 import { RunnerDeletedPayload, RunnerRecordRef, RunnerRegisteredPayload } from "./runners";
@@ -40,11 +40,17 @@ export const RawEventEnvelope = z.object({
   type: z.string(),
   payload: z.unknown(),
   ts: Timestamp,
+  /**
+   * The person or connected agent whose request caused it (§B.4); absent for CodeDen's own
+   * work, agents' events, and events stored before members existed.
+   */
+  actor: Actor.nullable().optional(),
 });
 export type RawEventEnvelope = z.infer<typeof RawEventEnvelope>;
 
-const base = { seq: z.int().positive(), sessionId: Id.nullable(), ts: Timestamp };
-const sessionBase = { seq: z.int().positive(), sessionId: Id, ts: Timestamp };
+const actor = Actor.nullable().optional();
+const base = { seq: z.int().positive(), sessionId: Id.nullable(), ts: Timestamp, actor };
+const sessionBase = { seq: z.int().positive(), sessionId: Id, ts: Timestamp, actor };
 
 function globalEvent<T extends string, P extends z.ZodType>(type: T, payload: P) {
   return z.object({ ...base, type: z.literal(type), payload });

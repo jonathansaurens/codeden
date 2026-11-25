@@ -1,6 +1,7 @@
 import {
   CreateInviteRequest,
   type CreateInviteResponse,
+  type MemberActivityResponse,
   type MemberDetail,
   type MemberRole,
   type MemberSummariesResponse,
@@ -11,13 +12,18 @@ import {
   OWNER_MEMBER_ID,
   UpdateMemberRequest,
 } from "@codeden/contracts";
+import { desc, isNotNull } from "drizzle-orm";
 import { type Context, Hono } from "hono";
+import { events } from "../db/schema";
 import type { MemberAuth } from "../members/auth";
 import { type Principal, principalOf } from "../members/principal";
 import type { NetworkAccess } from "../network/access";
 import type { AppServices } from "../services/container";
 import { forbidden, notFound, ServiceError } from "../services/errors";
 import { jsonBody } from "./validate";
+
+/** Events in the activity list. */
+const ACTIVITY_LIMIT = 100;
 
 export interface MemberRouteContext {
   services: AppServices;
@@ -74,55 +80,77 @@ export function meResponse(s: AppServices, principal: Principal): MeResponse {
  */
 export function memberRoutes(ctx: MemberRouteContext) {
   const s = ctx.services;
-  return new Hono()
-    .get("/me", (c) => c.json(meResponse(s, callerOf(c))))
-    .get("/summaries", (c) => {
-      const body: MemberSummariesResponse = {
-        members: s.members.list().map(({ id, kind, name }) => ({ id, kind, name })),
-      };
-      return c.json(body);
-    })
-    .get("/", (c) => {
-      const current = callerOf(c).sessionId ?? null;
-      const body: MembersResponse = {
-        members: s.members.list().map((m) => detail(ctx, m.id, current)),
-        invites: s.invites.list(),
-      };
-      return c.json(body);
-    })
-    .post("/invites", jsonBody(CreateInviteRequest), (c) => {
-      const body: CreateInviteResponse = s.invites.create(
-        c.req.valid("json"),
-        callerOf(c).member.id,
-      );
-      return c.json(body);
-    })
-    .delete("/invites/:inviteId", (c) => {
-      s.invites.revoke(c.req.param("inviteId"));
-      return c.json({ ok: true as const });
-    })
-    .patch("/:id", jsonBody(UpdateMemberRequest), (c) => {
-      const id = c.req.param("id");
-      const member = s.members.update(id, c.req.valid("json"));
-      // Its open connections close, so a disabled member's devices notice at once.
-      if (member.disabled) ctx.network.dropRemote();
-      return c.json(detail(ctx, id, callerOf(c).sessionId ?? null));
-    })
-    .delete("/:id", (c) => {
-      const id = c.req.param("id");
-      s.members.get(id);
-      if (id === OWNER_MEMBER_ID)
-        throw forbidden("The first owner can't be deleted.", "owner_locked");
-      // Devices first: nothing may stay signed in as a member that is gone.
-      ctx.auth.cutOff(id);
-      s.members.delete(id);
-      return c.json({ ok: true as const });
-    })
-    .delete("/:id/devices/:deviceId", (c) => {
-      const id = c.req.param("id");
-      const device = ctx.auth.devices(id, null).find((d) => d.id === c.req.param("deviceId"));
-      if (!device) throw notFound("No such device");
-      ctx.network.revoke(device.id);
-      return c.json(detail(ctx, id, callerOf(c).sessionId ?? null));
-    });
+  return (
+    new Hono()
+      .get("/me", (c) => c.json(meResponse(s, callerOf(c))))
+      .get("/summaries", (c) => {
+        const body: MemberSummariesResponse = {
+          members: s.members.list().map(({ id, kind, name }) => ({ id, kind, name })),
+        };
+        return c.json(body);
+      })
+      // Who did what (§B.4): the latest events a person or connected agent caused.
+      .get("/activity", (c) => {
+        const rows = s.db
+          .select({
+            seq: events.seq,
+            type: events.type,
+            actor: events.actor,
+            sessionId: events.sessionId,
+            ts: events.ts,
+          })
+          .from(events)
+          .where(isNotNull(events.actor))
+          .orderBy(desc(events.seq))
+          .limit(ACTIVITY_LIMIT)
+          .all();
+        const body: MemberActivityResponse = {
+          events: rows.flatMap((r) => (r.actor ? [{ ...r, actor: r.actor }] : [])),
+        };
+        return c.json(body);
+      })
+      .get("/", (c) => {
+        const current = callerOf(c).sessionId ?? null;
+        const body: MembersResponse = {
+          members: s.members.list().map((m) => detail(ctx, m.id, current)),
+          invites: s.invites.list(),
+        };
+        return c.json(body);
+      })
+      .post("/invites", jsonBody(CreateInviteRequest), (c) => {
+        const body: CreateInviteResponse = s.invites.create(
+          c.req.valid("json"),
+          callerOf(c).member.id,
+        );
+        return c.json(body);
+      })
+      .delete("/invites/:inviteId", (c) => {
+        s.invites.revoke(c.req.param("inviteId"));
+        return c.json({ ok: true as const });
+      })
+      .patch("/:id", jsonBody(UpdateMemberRequest), (c) => {
+        const id = c.req.param("id");
+        const member = s.members.update(id, c.req.valid("json"));
+        // Its open connections close, so a disabled member's devices notice at once.
+        if (member.disabled) ctx.network.dropRemote();
+        return c.json(detail(ctx, id, callerOf(c).sessionId ?? null));
+      })
+      .delete("/:id", (c) => {
+        const id = c.req.param("id");
+        s.members.get(id);
+        if (id === OWNER_MEMBER_ID)
+          throw forbidden("The first owner can't be deleted.", "owner_locked");
+        // Devices first: nothing may stay signed in as a member that is gone.
+        ctx.auth.cutOff(id);
+        s.members.delete(id);
+        return c.json({ ok: true as const });
+      })
+      .delete("/:id/devices/:deviceId", (c) => {
+        const id = c.req.param("id");
+        const device = ctx.auth.devices(id, null).find((d) => d.id === c.req.param("deviceId"));
+        if (!device) throw notFound("No such device");
+        ctx.network.revoke(device.id);
+        return c.json(detail(ctx, id, callerOf(c).sessionId ?? null));
+      })
+  );
 }

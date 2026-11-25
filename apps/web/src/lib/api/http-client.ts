@@ -170,6 +170,7 @@ export function createHttpClient(origin: string, opts: HttpClientOptions = {}): 
     },
 
     ...httpSessionConflictApi(http),
+    getInboxItem: (id) => get(`/inbox/${enc(id)}`, (v) => InboxItem.parse(v)),
     resolveInbox: (id, resolution) =>
       post(`/inbox/${enc(id)}/resolve`, resolution, (v) => InboxItem.parse(v)),
     retryInbox: (id) =>

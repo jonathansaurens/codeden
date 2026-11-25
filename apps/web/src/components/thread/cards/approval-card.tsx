@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useClient } from "@/lib/api";
 import { useCanOnSession } from "@/lib/members";
 import { cn } from "@/lib/utils";
+import { AnsweredBy } from "../attribution";
 import { PlanApprovalCard } from "./plan-approval-card";
 
 const actionLabel: Record<ItemOf<"approval_request">["action"], string> = {
@@ -80,6 +81,7 @@ function ActionApprovalCard({
           {item.decision ? decisionLabel[item.decision] : "Cancelled"}
           {item.decidedBy && item.decidedBy !== "user" ? ` by ${item.decidedBy}` : ""}
         </span>
+        <AnsweredBy sessionId={sessionId} itemId={item.id} />
       </div>
     );
   }

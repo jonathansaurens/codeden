@@ -47,6 +47,8 @@ interface Client {
 export interface HubAccess {
   eventFilter(principal: Principal | undefined): ((e: RawEventEnvelope) => boolean) | undefined;
   canWatch(principal: Principal | undefined, sessionId: string): boolean;
+  /** More than one member: presence is worth sending (a single-user install gets none). */
+  team(): boolean;
 }
 
 export interface WsHubOptions {
@@ -136,9 +138,11 @@ export class WsHub {
             break;
           case "watch_session":
             this.watch(client, msg.sessionId, msg.fromSeq, msg.threadIds);
+            if (client.watches.has(msg.sessionId)) this.announcePresence(msg.sessionId);
             break;
           case "unwatch_session":
             client.watches.delete(msg.sessionId);
+            this.announcePresence(msg.sessionId);
             break;
         }
       },
@@ -146,6 +150,7 @@ export class WsHub {
         if (!client) return;
         clearTimeout(client.timer);
         this.clients.delete(client);
+        for (const sessionId of client.watches.keys()) this.announcePresence(sessionId);
       },
     };
   }
@@ -224,6 +229,24 @@ export class WsHub {
     collectDirty(watch.dirty, events, sessionId, watch.threadIds);
     watch.dirty.seq = head;
     this.sendTranscript(client, sessionId, watch);
+  }
+
+  /** The members watching a session now (§B.4). */
+  presence(sessionId: string): string[] {
+    const ids = new Set<string>();
+    for (const c of this.clients) {
+      if (c.principal && c.watches.has(sessionId)) ids.add(c.principal.member.id);
+    }
+    return [...ids];
+  }
+
+  /** Tell everyone watching a session who else is (sent when it changes). */
+  private announcePresence(sessionId: string): void {
+    if (!this.opts.access?.team()) return;
+    const memberIds = this.presence(sessionId);
+    for (const c of this.clients) {
+      if (c.watches.has(sessionId)) send(c.ws, { type: "presence", sessionId, memberIds });
+    }
   }
 
   private visible(client: Client, e: RawEventEnvelope): boolean {

@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { useClient } from "@/lib/api";
 import { useCanOnSession } from "@/lib/members";
 import { cn } from "@/lib/utils";
+import { AnsweredBy } from "../attribution";
 
 type Answers = Record<string, string[]>;
 
@@ -57,6 +58,7 @@ export function QuestionCard({
         {item.decidedBy === "pm" && (
           <p className="text-2xs text-muted-foreground">Answered by the project manager</p>
         )}
+        <AnsweredBy sessionId={sessionId} itemId={item.id} />
         {item.status === "cancelled" && (
           <p className="text-2xs text-muted-foreground">
             {item.mcpServer ? `Dismissed: nothing was sent to ${item.mcpServer}` : "Dismissed"}

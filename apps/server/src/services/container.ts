@@ -282,6 +282,7 @@ export function createServices(opts: ServicesOptions): AppServices {
     log: opts.log,
   });
   sessions = new SessionService({
+    memberName: (id) => members.find(id)?.name ?? "a former member",
     repo: sessionRepo,
     projects,
     runner: opts.runner,

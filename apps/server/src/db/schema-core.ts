@@ -1,4 +1,5 @@
 import type {
+  Actor,
   Automation,
   AutomationRun,
   ErrorInfo,
@@ -47,6 +48,8 @@ export const events = sqliteTable(
     type: text("type").notNull(),
     payload: json<unknown>("payload").notNull(),
     ts: text("ts").notNull(),
+    /** The member whose request caused it (§B.4); null for CodeDen's own work. */
+    actor: json<Actor>("actor"),
   },
   (t) => [index("events_session_seq").on(t.sessionId, t.seq), index("events_type").on(t.type)],
 );
@@ -125,6 +128,8 @@ export const sessions = sqliteTable(
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
     endedAt: text("ended_at"),
+    /** Who stopped it (§B.4), when a member did. */
+    stoppedBy: json<Actor>("stopped_by"),
     archivedAt: text("archived_at"),
     worktreeRemovedAt: text("worktree_removed_at"),
     /** The session this one was forked from, and the checkpoint its worktree started at. */

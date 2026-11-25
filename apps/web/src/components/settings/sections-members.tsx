@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useClient } from "@/lib/api";
 import { ago, until } from "@/lib/format";
-import { membersKey, ROLE_LABEL, useCan } from "@/lib/members";
+import { memberName, membersKey, ROLE_LABEL, useCan, useMemberNames } from "@/lib/members";
 import { InviteDialog, ProjectRolesEditor, RoleSelect } from "./member-dialogs";
 import { deviceName } from "./sections-network";
 import { SettingRow, SettingsSection } from "./settings-ui";
@@ -63,8 +63,58 @@ export function MembersSettings() {
           ))}
         </SettingsSection>
       )}
+      <ActivityList />
       {inviting && <InviteDialog onClose={() => setInviting(false)} />}
     </>
+  );
+}
+
+const ACTIVITY_LABEL: Record<string, string> = {
+  "settings.updated": "Changed settings",
+  "member.created": "Added a member",
+  "member.updated": "Changed a member",
+  "member.deleted": "Deleted a member",
+  "session.created": "Started a session",
+  "session.updated": "Changed a session",
+  "message.queued": "Queued a message",
+  "inbox.updated": "Answered or closed an inbox item",
+  "project.created": "Added a project",
+  "project.updated": "Changed a project",
+  "project.archived": "Archived a project",
+  "automation.saved": "Saved an automation",
+  "automation.deleted": "Deleted an automation",
+  "automation_run.updated": "Ran an automation",
+};
+
+/** Who did what lately (§B.4): settings changes, stops, answers and more. */
+function ActivityList() {
+  const client = useClient();
+  const names = useMemberNames();
+  const activity = useQuery({
+    queryKey: ["members", "activity"],
+    queryFn: () => client.members.activity(),
+  });
+  const events = activity.data?.events ?? [];
+  if (events.length === 0) return null;
+  return (
+    <SettingsSection
+      title="Recent activity"
+      description="The latest changes people and connected agents made."
+    >
+      <ul className="divide-y divide-border">
+        {events.slice(0, 30).map((e) => (
+          <li key={e.seq} className="flex items-center justify-between gap-3 px-4 py-2 text-[13px]">
+            <span className="min-w-0 truncate">
+              <span className="font-medium">{memberName(names, e.actor.memberId)}</span>{" "}
+              <span className="text-muted-foreground">
+                {(ACTIVITY_LABEL[e.type] ?? e.type).toLowerCase()}
+              </span>
+            </span>
+            <span className="shrink-0 text-2xs text-muted-foreground">{ago(e.ts)}</span>
+          </li>
+        ))}
+      </ul>
+    </SettingsSection>
   );
 }
 

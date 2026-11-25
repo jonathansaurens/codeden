@@ -14,6 +14,7 @@ import {
 } from "../common";
 import { Item } from "../items";
 import { McpServerState } from "../mcp-status";
+import { Actor } from "../members";
 import { StartedBy, workFields } from "../work";
 import { SessionResult } from "../workbench";
 
@@ -176,6 +177,8 @@ export const Session = z.object({
   createdAt: Timestamp,
   updatedAt: Timestamp,
   endedAt: Timestamp.nullable(),
+  /** The member who stopped it (§B.4); absent when CodeDen did, or before members existed. */
+  stoppedBy: Actor.optional(),
 });
 export type Session = z.infer<typeof Session>;
 

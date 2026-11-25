@@ -7,6 +7,7 @@ import {
 } from "@codeden/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 import { useConnectionStore } from "@/stores/connection";
+import { usePresenceStore } from "@/stores/presence";
 import { useTranscriptsStore } from "@/stores/transcripts";
 import type { CodeDenClient } from "./api/client";
 import { syncSessionQueries } from "./archived-sessions";
@@ -109,6 +110,9 @@ export function startRealtime(client: CodeDenClient, queryClient: QueryClient): 
           break;
         case "update":
           queryClient.setQueryData(updatesKey, msg.update);
+          break;
+        case "presence":
+          usePresenceStore.getState().set(msg.sessionId, msg.memberIds);
           break;
         case "events":
           for (const e of msg.events) apply(e);

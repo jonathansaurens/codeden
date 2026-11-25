@@ -2,6 +2,7 @@ import {
   type CreateInviteRequest,
   CreateInviteResponse,
   type Member,
+  MemberActivityResponse,
   MemberDetail,
   MemberSummariesResponse,
   MembersResponse,
@@ -24,6 +25,8 @@ export interface MembersApi {
   update(id: string, patch: UpdateMemberRequest): Promise<MemberDetail>;
   remove(id: string): Promise<void>;
   signOutDevice(memberId: string, deviceId: string): Promise<MemberDetail>;
+  /** Owners: the latest things people and connected agents did (§B.4). */
+  activity(): Promise<MemberActivityResponse>;
 }
 
 const enc = encodeURIComponent;
@@ -42,6 +45,7 @@ export function httpMembersApi(http: Fetcher): MembersApi {
     async remove(id) {
       await http.call("DELETE", `/members/${enc(id)}`);
     },
+    activity: () => http.get("/members/activity", (v) => MemberActivityResponse.parse(v)),
     signOutDevice: (memberId, deviceId) =>
       http.call("DELETE", `/members/${enc(memberId)}/devices/${enc(deviceId)}`, undefined, (v) =>
         MemberDetail.parse(v),
@@ -111,5 +115,6 @@ export function mockMembersApi(): MembersApi {
       members = members.filter((m) => m.id !== id);
     },
     signOutDevice: async (memberId) => detail(find(memberId)),
+    activity: async () => ({ events: [] }),
   };
 }

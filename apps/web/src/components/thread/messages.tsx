@@ -6,6 +6,7 @@ import { useClient } from "@/lib/api";
 import { attachmentGallery } from "@/lib/attachments";
 import { copyWithFeedback } from "@/lib/copy";
 import { foldDigest } from "@/lib/orchestration";
+import { ActorLabel } from "./attribution";
 import { DigestDisclosure, WakeLine } from "./digest-fold";
 import { Markdown } from "./markdown";
 import { SenderMessage } from "./sender-message";
@@ -107,6 +108,8 @@ export function UserMessage({ item }: { item: ItemOf<"user_message"> }) {
           </div>
         )
       )}
+      {/* Who sent it, on a server with a team (§B.4). */}
+      <ActorLabel actor={item.input.author} />
     </div>
   );
 }
