@@ -1,4 +1,5 @@
 import {
+  itemDeltaText,
   mergeItemDeltas,
   type RawEventEnvelope,
   type RunnerEventMessage,
@@ -26,29 +27,42 @@ export interface BatchIngestResult {
 }
 
 /**
+ * Most characters of streamed text one merged delta holds: the runner's own cap for the deltas
+ * it merges (`DELTA_MAX_CHARS` in `apps/runner/src/delta-batcher.ts`), so a stored event, and
+ * what every UI client is sent, stays as small as the runner's.
+ */
+export const MERGED_DELTA_MAX_CHARS = 16 * 1024;
+
+/**
  * Merge streamed deltas that arrived together: per session, a delta that extends the same item
  * the same way as that session's previous delta in the batch (`mergeItemDeltas`) joins it, as
- * the runner's own batching does. Any other event of the session ends its run of deltas; an
- * event of no session ends every run, so it never falls behind a delta that came after it.
- * Order within a session is kept.
+ * the runner's own batching does, while the merged text stays within `maxChars`; the delta that
+ * would take it past starts the next merged one. Any other event of the session ends its run of
+ * deltas; an event of no session ends every run, so it never falls behind a delta that came
+ * after it. Order within a session is kept.
  */
-export function mergeStreamedDeltas(msgs: RunnerEventMessage[]): RunnerEventMessage[] {
+export function mergeStreamedDeltas(
+  msgs: RunnerEventMessage[],
+  maxChars = MERGED_DELTA_MAX_CHARS,
+): RunnerEventMessage[] {
   const out: RunnerEventMessage[] = [];
-  /** Session id -> index in `out` of its delta that a later one may join. */
-  const open = new Map<string, number>();
+  /** Session id -> its delta in `out` that a later one may join, and that delta's length. */
+  const open = new Map<string, { at: number; chars: number }>();
   for (const msg of msgs) {
     const { event } = msg;
     if (event.kind === "agent" && event.event.type === "item.delta") {
-      const at = open.get(event.sessionId);
-      const prev = at === undefined ? undefined : out[at];
+      const chars = itemDeltaText(event.event.delta).length;
+      const run = open.get(event.sessionId);
+      const prev = run && run.chars + chars <= maxChars ? out[run.at] : undefined;
       const merged =
         prev?.event.kind === "agent" && prev.event.event.type === "item.delta"
           ? mergeItemDeltas(prev.event.event, event.event)
           : undefined;
-      if (at !== undefined && merged) {
-        out[at] = { ...msg, event: { ...event, event: merged } };
+      if (run && merged) {
+        out[run.at] = { ...msg, event: { ...event, event: merged } };
+        run.chars += chars;
       } else {
-        open.set(event.sessionId, out.length);
+        open.set(event.sessionId, { at: out.length, chars });
         out.push(msg);
       }
       continue;

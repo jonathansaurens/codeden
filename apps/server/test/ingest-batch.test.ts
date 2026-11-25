@@ -7,7 +7,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type Database, openDatabase } from "../src/db/client";
 import { items } from "../src/db/schema";
 import { ingestRunnerEvent, lastAckedSeq } from "../src/events/ingest";
-import { ingestRunnerEvents, mergeStreamedDeltas } from "../src/events/ingest-batch";
+import {
+  ingestRunnerEvents,
+  MERGED_DELTA_MAX_CHARS,
+  mergeStreamedDeltas,
+} from "../src/events/ingest-batch";
 import { EventStore } from "../src/events/store";
 import { RunnerEventIntake } from "../src/runner/event-intake";
 import { sampleSession } from "./helpers";
@@ -120,6 +124,28 @@ describe("mergeStreamedDeltas", () => {
       "runner.draining",
       "s2:b:tres",
     ]);
+  });
+  it("splits a long run of one item's deltas into merged events within the cap, in order", () => {
+    seq = 0;
+    // 256 deltas of 1-5 KiB of one item: about 770 KiB of text.
+    const pieces = Array.from({ length: 256 }, (_, i) =>
+      String.fromCharCode(97 + (i % 26)).repeat(1024 * (1 + (i % 5))),
+    );
+    const merged = mergeStreamedDeltas(pieces.map((p) => text("s1", "a", p)));
+    const texts = merged.map((m) =>
+      m.event.kind === "agent" && m.event.event.type === "item.delta"
+        ? (m.event.event.delta as { text: string }).text
+        : "",
+    );
+    const total = pieces.join("").length;
+    expect(texts.length).toBeGreaterThanOrEqual(Math.ceil(total / MERGED_DELTA_MAX_CHARS));
+    expect(texts.length).toBeLessThan(pieces.length);
+    for (const t of texts) expect(t.length).toBeLessThanOrEqual(MERGED_DELTA_MAX_CHARS);
+    expect(texts.join("")).toBe(pieces.join(""));
+    // Each merged event carries the seq of the last delta it holds, so seqs keep rising.
+    const seqs = merged.map((m) => m.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(seqs.at(-1)).toBe(256);
   });
 });
 
