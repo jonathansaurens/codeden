@@ -15,6 +15,7 @@ import { EventStore } from "./events/store";
 import type { ExecutionBackend } from "./execution/backend";
 import { DockerBackend } from "./execution/docker/backend";
 import { SandboxService } from "./execution/sandboxes";
+import { MachineService } from "./execution/ssh/machines";
 import { writeJsonFile } from "./json-file";
 import { createMcpHandler } from "./mcp/endpoint";
 import { NetworkAccess } from "./network/access";
@@ -154,6 +155,13 @@ export interface StartServerOptions {
   executionBackends?: { docker?: ExecutionBackend };
   /** How long a new sandbox's runner may take to answer (default 2 minutes). */
   sandboxConnectTimeoutMs?: number;
+  /**
+   * Machines over SSH (`docs/machines-teams-and-agents.md` Part A). `sshCommand` replaces the
+   * `ssh` on PATH (tests point it at a shim); `command` replaces the command machines run
+   * CodeDen with (default `CODEDEN_MACHINE_COMMAND`, else `npx -y codeden@<version>`); `exec`
+   * runs the add checks.
+   */
+  machines?: { sshCommand?: string; command?: string; exec?: Exec; connectTimeoutMs?: number };
   /** Network interfaces for the address list (tests). */
   networkInterfaces?: () => InterfaceMap;
   log?: (message: string) => void;
@@ -238,6 +246,16 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     connectTimeoutMs: opts.sandboxConnectTimeoutMs,
     log,
   });
+  const machines = new MachineService({
+    db: database.db,
+    hub: runners,
+    exec: opts.machines?.exec ?? exec,
+    sshCommand: opts.machines?.sshCommand,
+    command: opts.machines?.command ?? process.env.CODEDEN_MACHINE_COMMAND,
+    fake: opts.enableFakeProvider === true,
+    connectTimeoutMs: opts.machines?.connectTimeoutMs,
+    log,
+  });
   const services = createServices({
     db: database.db,
     store,
@@ -246,6 +264,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     runner: runners.home(),
     runners,
     sandboxes,
+    machines,
     secrets,
     exec: opts.exec,
     locate: opts.locate,
@@ -434,6 +453,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
 
   // Sessions in containers from before this start continue there, through new links.
   void sandboxes.reattach();
+  void machines.reattach();
 
   async function close(closeOpts: { stopRunner?: boolean } = {}): Promise<void> {
     closing ??= (async () => {

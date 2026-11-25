@@ -75,9 +75,11 @@ export const projects = sqliteTable(
     /** Agent sessions run with `CI=true` (§4.2); the migration keeps it on for every project. */
     agentCiEnv: integer("agent_ci_env", { mode: "boolean" }).notNull().default(true),
     /** Where new agent sessions run (`Project.execution.backend`); `local` for older projects. */
-    executionBackend: text("execution_backend", { enum: ["local", "docker"] })
+    executionBackend: text("execution_backend", { enum: ["local", "docker", "ssh"] })
       .notNull()
       .default("local"),
+    /** With backend `ssh`: the machine's label (`Project.execution.machine`). */
+    executionMachine: text("execution_machine"),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     /** Manual list position (§13); the migration backfills it from the alphabetical order. */
     sortOrder: integer("sort_order").notNull().default(0),

@@ -12,6 +12,7 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppServices } from "../services/container";
+import { badRequest } from "../services/errors";
 import { listFolderFiles } from "../services/files/session-files";
 import { readProjectConfig } from "../services/projects/project-config";
 import { archivedSessionsPage } from "../services/sessions/archived";
@@ -43,6 +44,10 @@ export function projectRoutes(s: AppServices) {
       // Docker must be there to switch a project to it (checked now, not cached).
       if (patch.execution) {
         await s.sandboxes.assertUsable(s.projects.get(c.req.param("id")), patch.execution.backend);
+        const machine = patch.execution.machine;
+        if (patch.execution.backend === "ssh" && machine && !s.machines?.find(machine)) {
+          throw badRequest(`No machine is called ${machine}`, "unknown_machine");
+        }
       }
       return c.json(s.projects.update(c.req.param("id"), patch));
     })

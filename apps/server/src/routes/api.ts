@@ -25,6 +25,7 @@ import { factoryRoutes, projectFactoryRoutes } from "./factory";
 import { githubRoutes, projectGithubRoutes, prRoutes, sessionGithubRoutes } from "./github";
 import { imageRoutes } from "./images";
 import { inboxRoutes } from "./inbox";
+import { machineRoutes } from "./machines";
 import { authRoutes, type NetworkRouteContext, networkRoutes } from "./network";
 import { conflictRoutes, orchestrationRoutes } from "./orchestration";
 import { projectRoutes } from "./projects";
@@ -78,6 +79,7 @@ export function createApi(ctx: ApiContext) {
       )
       .route("/projects", projectRoutes(s))
       .route("/execution", executionRoutes(s))
+      .route("/machines", machineRoutes(s))
       .route("/projects", projectGithubRoutes(s))
       .route("/projects", projectFactoryRoutes(s))
       .route("/factory", factoryRoutes(s))

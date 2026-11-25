@@ -4,6 +4,7 @@ import {
   messageFrom,
   ProviderId,
   ReasoningEffort,
+  SessionPlacement,
   SessionStatus,
   StartedBy,
   StartSessionRequest,
@@ -74,6 +75,9 @@ export const startSession = defineTool({
     provider: ProviderId.optional(),
     model: z.string().min(1).optional(),
     effort: ReasoningEffort.optional(),
+    machine: SessionPlacement.optional().describe(
+      "Where the session runs: 'home' (this computer) or a machine's name from Settings > Machines. Leave it out to use the project's setting. A machine needs a GitHub project and the provider signed in there",
+    ),
     conflict: ConflictDecision.optional(),
     reportTo: z
       .enum(["orchestrator"])
@@ -105,6 +109,7 @@ export const startSession = defineTool({
       provider,
       model: input.model,
       effort: input.effort,
+      machine: input.machine,
       purpose: input.purpose,
       workKey: input.workKey ?? (input.issueNumber ? `issue:${input.issueNumber}` : undefined),
       scope: input.scope,

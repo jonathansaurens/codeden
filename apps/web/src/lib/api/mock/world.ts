@@ -106,6 +106,12 @@ export class MockWorld {
     return () => this.listeners.delete(listener);
   }
 
+  /** Replace the runners list and send it, as the server does when a runner changes. */
+  setRunners(runners: Snapshot["runners"]): void {
+    this.snapshot = { ...this.snapshot, runners };
+    for (const l of this.listeners) l({ type: "runner", runner: this.snapshot.runner, runners });
+  }
+
   private broadcast(env: EventEnvelope) {
     this.log.push(env);
     if (this.log.length > 2000) this.log.splice(0, 500);

@@ -519,7 +519,7 @@ export const runner: RunnerConnectionStatus = {
   lastError: null,
 };
 
-/** The runners list: only the home runner, as on a machine without sandboxes. */
+/** The runners list: the home runner and one machine reached over SSH (`vps-1`). */
 export const runners: RunnerRecord[] = [
   {
     id: HOME_RUNNER_ID,
@@ -527,6 +527,8 @@ export const runners: RunnerRecord[] = [
     home: true,
     runnerId: "runner-local",
     sandboxRef: null,
+    label: null,
+    weight: null,
     projectId: null,
     sessionId: null,
     state: "connected",
@@ -534,6 +536,23 @@ export const runners: RunnerRecord[] = [
     imageVersion: null,
     createdAt: "2026-11-01T08:00:00.000Z",
     lastSeenAt: "2026-11-01T08:00:00.000Z",
+    lastError: null,
+  },
+  {
+    id: "machine-vps-1",
+    backend: "ssh",
+    home: false,
+    runnerId: "runner-vps-1",
+    sandboxRef: "deploy@vps-1.example.net",
+    label: "vps-1",
+    weight: 50,
+    projectId: null,
+    sessionId: null,
+    state: "connected",
+    version: "0.1.0",
+    imageVersion: null,
+    createdAt: "2026-11-20T09:30:00.000Z",
+    lastSeenAt: "2026-11-25T08:00:00.000Z",
     lastError: null,
   },
 ];

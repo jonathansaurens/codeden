@@ -15,7 +15,12 @@ export const runners = sqliteTable(
     isHome: integer("is_home", { mode: "boolean" }).notNull().default(false),
     /** The runner's journal id from its `welcome`; what `sessions.runner_id` holds. */
     runnerId: text("runner_id"),
+    /** The sandbox's handle, or a machine's SSH destination. */
     sandboxRef: text("sandbox_ref"),
+    /** A machine's label. */
+    label: text("label"),
+    /** A machine's (or the home runner's) preference for automatic placement; null: Normal. */
+    weight: integer("weight"),
     projectId: text("project_id"),
     sessionId: text("session_id"),
     state: text("state").$type<RunnerRecordState>().notNull(),

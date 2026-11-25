@@ -149,7 +149,17 @@ export class ProjectService {
           "backend_unavailable",
         );
       }
-      next.execution = { backend: patch.execution.backend };
+      const { backend, machine } = patch.execution;
+      if (backend === "ssh" && current.kind !== "github") {
+        throw badRequest(
+          "Machines need a GitHub project: each machine clones the repository from GitHub",
+          "machine_unavailable",
+        );
+      }
+      if (backend === "ssh" && !machine) {
+        throw badRequest("Choose the machine the project's sessions run on", "machine_required");
+      }
+      next.execution = backend === "ssh" ? { backend, machine } : { backend };
     }
     this.deps.store.append([
       { type: "project.updated", sessionId: null, payload: { project: next } },

@@ -186,7 +186,7 @@ A **`RunnerTransport`** on the server replaces the hard-wired `ws` client: `send
 | Transport | Who connects | Used by | Listener needed |
 |---|---|---|---|
 | `loopback` | Server → runner's `127.0.0.1` WebSocket (today) | `local` | Runner on loopback (as today) |
-| `exec` | Server starts `codeden runner-link` inside the sandbox through the backend; newline-delimited JSON on its stdin/stdout, spliced to the runner's loopback WebSocket with the token from the runner's own lock file | `docker`, `upstash-box`, later `sbx` and SSH | **None** |
+| `exec` | Server starts `codeden runner-link` inside the sandbox through the backend; newline-delimited JSON on its stdin/stdout, spliced to the runner's loopback WebSocket with the token from the runner's own lock file | `docker`, `ssh` (machines, built: [machines.md](machines.md)), `upstash-box`, later `sbx` | **None** |
 | `dial-out` (later) | Runner → `wss://<server>/runner/attach` with a per-runner secret | Machines the server can't exec into | A server endpoint reachable from the sandbox (§7) |
 
 **Why exec first.** It needs no new credential (the backend's own access, the Docker socket or the Upstash key, already proves the server owns the sandbox), no inbound port anywhere, and no change to the 127.0.0.1 rule. A link that drops (server restart, network blip, Upstash session loss) costs nothing: the runner keeps running and journaling, and the server opens a new link and resumes by `seq`, exactly as after a local server restart. `runner-link` writes only protocol frames to stdout and logs to stderr.

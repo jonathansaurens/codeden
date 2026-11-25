@@ -25,6 +25,8 @@ const home: RunnerRecord = {
   home: true,
   runnerId: "r-home",
   sandboxRef: null,
+  label: null,
+  weight: null,
   projectId: null,
   sessionId: null,
   state: "connected",
@@ -56,9 +58,9 @@ describe("runner records", () => {
     roundTrip(RunnerRecord, sandbox);
   });
 
-  it("knows the three backends and refuses others", () => {
-    expect(RunnerBackendId.options).toEqual(["local", "docker", "upstash-box"]);
-    expect(RunnerRecord.safeParse({ ...sandbox, backend: "ssh" }).success).toBe(false);
+  it("knows the four backends and refuses others", () => {
+    expect(RunnerBackendId.options).toEqual(["local", "docker", "upstash-box", "ssh"]);
+    expect(RunnerRecord.safeParse({ ...sandbox, backend: "vm" }).success).toBe(false);
     expect(RunnerRecord.safeParse({ ...sandbox, state: "sleeping" }).success).toBe(false);
   });
 

@@ -5,6 +5,7 @@ import { createImageEngineRegistry, type ImageEngineRegistry } from "@codeden/pr
 import type { Db } from "../db/client";
 import type { EventStore } from "../events/store";
 import { noSandboxes, type SandboxService } from "../execution/sandboxes";
+import type { MachineService } from "../execution/ssh/machines";
 import { ToolRegistry } from "../mcp/registry";
 import { McpTokenStore } from "../mcp/tokens";
 import { allTools } from "../mcp/tools";
@@ -87,6 +88,8 @@ export interface ServicesOptions {
    * the server next to its runner hub. Without it every project runs locally.
    */
   sandboxes?: SandboxService;
+  /** Machines over SSH (`docs/machines-teams-and-agents.md` Part A); made by the server. */
+  machines?: MachineService;
   secrets: SecretStore;
   exec?: Exec;
   /** Finds claude, codex and gh for the setup checks (tests fake it with `exec`). */
@@ -145,6 +148,8 @@ export interface AppServices {
   runners: RunnerRouter;
   /** Execution backends and the sandboxes of projects whose sessions run in containers. */
   sandboxes: SandboxService;
+  /** Machines over SSH; absent in services made without a runner hub. */
+  machines?: MachineService;
   secrets: SecretStore;
   utility: UtilityService;
   projects: ProjectService;
@@ -288,6 +293,7 @@ export function createServices(opts: ServicesOptions): AppServices {
     tokens: mcpTokens,
     utility,
     sandboxes,
+    machines: opts.machines,
     projectChecks: redetector,
   });
   const checksLoop = new ChecksLoop({
@@ -452,6 +458,7 @@ export function createServices(opts: ServicesOptions): AppServices {
     runner: opts.runner,
     runners,
     sandboxes,
+    machines: opts.machines,
     secrets: opts.secrets,
     utility,
     projects,

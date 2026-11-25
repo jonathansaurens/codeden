@@ -41,6 +41,7 @@ export * from "./hook-output";
 export * from "./images-api";
 export * from "./input";
 export * from "./items";
+export * from "./machines";
 export * from "./mcp-status";
 export * from "./network";
 export * from "./orchestration";

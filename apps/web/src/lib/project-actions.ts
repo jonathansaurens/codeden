@@ -1,4 +1,10 @@
-import type { Project, ProjectExecutionBackend, Snapshot } from "@codeden/contracts";
+import type {
+  MachineLabel,
+  Project,
+  ProjectExecution,
+  ProjectExecutionBackend,
+  Snapshot,
+} from "@codeden/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { toast } from "sonner";
@@ -100,18 +106,26 @@ export function useProjectActions() {
           return false;
         }
       },
-      /** Where the project's new agent sessions run (`Project.execution`); refused with a toast. */
-      setExecutionBackend: async (project: Project, backend: ProjectExecutionBackend) => {
-        const set = (value: ProjectExecutionBackend) =>
+      /**
+       * Where the project's new agent sessions run (`Project.execution`): this machine, Docker, or
+       * a machine over SSH (backend `ssh` with the machine's label). Refused with a toast.
+       */
+      setExecutionBackend: async (
+        project: Project,
+        backend: ProjectExecutionBackend,
+        machine?: MachineLabel,
+      ) => {
+        const next: ProjectExecution = backend === "ssh" ? { backend, machine } : { backend };
+        const set = (value: ProjectExecution) =>
           setProjects((list) =>
-            list.map((p) => (p.id === project.id ? { ...p, execution: { backend: value } } : p)),
+            list.map((p) => (p.id === project.id ? { ...p, execution: value } : p)),
           );
-        set(backend);
+        set(next);
         try {
-          await client.updateProject(project.id, { execution: { backend } });
+          await client.updateProject(project.id, { execution: next });
           return true;
         } catch (error) {
-          set(project.execution?.backend ?? "local");
+          set(project.execution ?? { backend: "local" });
           toast.error(`Couldn't change where ${project.name}'s sessions run`, {
             description: message(error),
           });

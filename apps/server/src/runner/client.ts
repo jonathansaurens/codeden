@@ -62,6 +62,11 @@ export interface RunnerClientOptions {
   store: EventStore;
   /** Loopback: how to start a runner when none is live; `null` only attaches to one. */
   launch: RunnerLaunchConfig | null;
+  /**
+   * Drain a runner of another version even without `launch`: its link starts a current one
+   * when it exits (a machine's runner, `docs/machines-teams-and-agents.md` §A.2).
+   */
+  replaceOnMismatch?: boolean;
   /** Called on every connection status change. */
   onStatus?: (status: RunnerConnectionStatus) => void;
   /** Ephemeral stream data (terminal output, browser frames). */
@@ -524,7 +529,9 @@ export class RunnerClient {
    */
   private afterHandshake(msg: RunnerWelcome): void {
     const log = this.opts.log;
-    const mismatch = msg.runnerVersion !== CODEDEN_VERSION && this.opts.launch !== null;
+    const mismatch =
+      msg.runnerVersion !== CODEDEN_VERSION &&
+      (this.opts.launch !== null || this.opts.replaceOnMismatch === true);
     // The proxy tunnels over this connection, or forwards to the server's loopback `/mcp`.
     const mcpUpstreamUrl = this.opts.mcpLink ? null : this.opts.mcpUpstreamUrl;
     const configured =

@@ -1,4 +1,5 @@
 import type {
+  AddMachineRequest,
   ArchivedSessionsPage,
   ArchivedSessionsQueryInit,
   ArchiveSessionResponse,
@@ -26,6 +27,9 @@ import type {
   InboxItem,
   LoginCommandResponse,
   LoginToolId,
+  Machine,
+  MachinesResponse,
+  MachineWeight,
   Project,
   ProjectCheck,
   ProjectModelsResponse,
@@ -257,6 +261,24 @@ export interface CodeDenClient {
    */
   archiveProject(projectId: string): Promise<void>;
   readonly automations: AutomationsApi;
+
+  // Machines (`docs/machines-teams-and-agents.md` Part A): other computers reached over SSH.
+  /** Every machine with what its runner last reported, and the command they run CodeDen with. */
+  machines(): Promise<MachinesResponse>;
+  /**
+   * Check a machine over SSH (installing CodeDen there the first time) and add it. Slow; rejects
+   * with an `ApiRequestError` whose `code` is a `MachineCheckCode` and whose message says why.
+   */
+  addMachine(req: AddMachineRequest): Promise<Machine>;
+  /** A machine's preference for automatic placement. */
+  setMachineWeight(id: string, weight: MachineWeight): Promise<Machine>;
+  /**
+   * Remove a machine. Refused (409) with `machine_in_use` while sessions placed there aren't
+   * archived, and with `machine_unpushed` while a clone there has unpushed work (`force` removes
+   * it anyway).
+   */
+  removeMachine(id: string, opts?: { force?: boolean }): Promise<void>;
+
   /** Autonomy modes, the vision, the factory panel and kill switches (§10.1, experimental). */
   readonly factory: FactoryApi;
 

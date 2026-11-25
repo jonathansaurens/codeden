@@ -15,8 +15,14 @@ Usage:
                          (on --loopback-only: stay on 127.0.0.1 behind a proxy such as Tailscale Serve)
   codeden network origin add|remove|list <https-url>
                          HTTPS addresses of a proxy on this computer that CodeDen trusts
+  codeden machines list|add|remove
+                         Computers CodeDen runs sessions on over SSH
+                         (add <ssh-destination> [--name <label>], remove <name> [--force])
+  codeden runner --detach
+                         Start a runner in --home unless one runs there (run by the server
+                         on a machine)
   codeden runner-link    Connect stdin/stdout to the runner in --home (run by the server
-                         inside a sandbox; stdout carries only protocol frames)
+                         inside a sandbox or on a machine; stdout carries only protocol frames)
 
 Options:
   --port <n>     Port to listen on (default ${DEFAULT_PORT})
@@ -39,6 +45,11 @@ export function parseCli(args: string[]) {
       rollback: { type: "boolean", default: false },
       generate: { type: "boolean", default: false },
       "loopback-only": { type: "boolean", default: false },
+      detach: { type: "boolean", default: false },
+      backend: { type: "string" },
+      fake: { type: "boolean", default: false },
+      name: { type: "string" },
+      force: { type: "boolean", default: false },
       version: { type: "boolean", short: "v", default: false },
       help: { type: "boolean", short: "h", default: false },
     },

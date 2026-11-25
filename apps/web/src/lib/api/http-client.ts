@@ -58,6 +58,7 @@ import {
   httpVoiceApi,
 } from "./http-features";
 import { httpGithubApi, httpOrchestrationApi, httpSessionConflictApi } from "./http-orchestration";
+import { httpMachinesApi } from "./machines-api";
 import { httpAuthApi, httpNetworkApi } from "./network-api";
 import { httpQueueApi } from "./queue-api";
 import { RealtimeSocket } from "./realtime-socket";
@@ -197,6 +198,7 @@ export function createHttpClient(origin: string, opts: HttpClientOptions = {}): 
       await call("DELETE", `/projects/${enc(id)}`);
     },
     automations: httpAutomationsApi(http),
+    ...httpMachinesApi(http),
     factory: httpFactoryApi(http),
 
     updateSettings: (patch) => call("PATCH", "/settings", patch, (v) => Settings.parse(v)),

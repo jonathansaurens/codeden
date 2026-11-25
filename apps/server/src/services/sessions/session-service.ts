@@ -53,6 +53,7 @@ import type { LaunchFork, SessionLauncher } from "./launcher";
 import type { Outbox } from "./outbox";
 import { isTransientRunnerError, isTurnRunningError, OutboxHolds } from "./outbox-holds";
 import { planModeUnsupported, readOnlyUnsupported } from "./permissions";
+import { assertProviderOnMachine, type MachinePlacer, machineFor } from "./placement";
 import { autoOrder } from "./provider-order";
 import type { Answerer, QuestionBroker } from "./questions";
 import { applyPendingConfig, updateSession } from "./reconfigure";
@@ -77,6 +78,8 @@ export interface SessionServiceDeps extends RunnerDeps {
   outboxRetryMs?: number;
   /** Refuses starts a project's sandboxes can't host (`docs/remote-runners.md` §8). */
   sandboxes?: Pick<SandboxService, "assertStartable" | "wants">;
+  /** Machines a session can be placed on by name (`docs/machines-teams-and-agents.md` §A.5). */
+  machines?: MachinePlacer;
   /**
    * Brings a project's record up to date with its folder (`isGitRepo`) when the start-up check
    * hasn't reached it yet (#425). Without it, starts trust the record as it is.
@@ -245,7 +248,18 @@ export class SessionService {
     }
 
     const queued = queuedBehind.length > 0;
-    const session = this.buildSession(req, project, { purpose, workKey, scope, queued });
+    const machine = machineFor(this.deps.machines, req, project);
+    const session = this.buildSession(
+      req,
+      project,
+      { purpose, workKey, scope, queued },
+      machine?.port,
+    );
+    if (machine && this.deps.machines) {
+      await assertProviderOnMachine(this.deps.machines, machine, session.provider);
+      // Routed to the machine before the workspace is made: it clones there (§A.4).
+      session.runnerId = machine.record.runnerId;
+    }
     const meta: StoredStartMeta = {
       workspaceMode: workspace.mode,
       workspaceFallback: null,
@@ -759,9 +773,13 @@ export class SessionService {
     return runner.providers().find((p) => p.id === id);
   }
 
-  private resolveProvider(req: StartSessionRequest, projectDefault: string | null): string {
-    const available = this.deps.runner.providers().map((p) => p.id);
-    const connected = this.deps.runner.isConnected();
+  private resolveProvider(
+    req: StartSessionRequest,
+    projectDefault: string | null,
+    runner: RunnerPort = this.deps.runner,
+  ): string {
+    const available = runner.providers().map((p) => p.id);
+    const connected = runner.isConnected();
     if (req.provider && req.provider !== "auto") {
       if (connected && !available.includes(req.provider)) {
         throw badRequest(
@@ -771,7 +789,7 @@ export class SessionService {
       }
       return req.provider;
     }
-    const configured = this.configuredProvider(req.role, projectDefault);
+    const configured = this.configuredProvider(req.role, projectDefault, runner);
     if (configured) return configured;
     return autoOrder(available)[0] ?? "claude";
   }
@@ -781,9 +799,13 @@ export class SessionService {
    * role's (`settings.providers.<role>`). Null when both leave it to Auto, or name a provider
    * the connected runner doesn't have.
    */
-  configuredProvider(role: Session["role"], projectDefault: string | null): string | null {
-    const available = this.deps.runner.providers().map((p) => p.id);
-    const connected = this.deps.runner.isConnected();
+  configuredProvider(
+    role: Session["role"],
+    projectDefault: string | null,
+    runner: RunnerPort = this.deps.runner,
+  ): string | null {
+    const available = runner.providers().map((p) => p.id);
+    const connected = runner.isConnected();
     const roleDefault = this.deps.settings.get().providers[role].provider;
     for (const choice of [projectDefault, roleDefault === "auto" ? null : roleDefault]) {
       if (choice && (!connected || available.includes(choice))) return choice;
@@ -795,18 +817,21 @@ export class SessionService {
     req: StartSessionRequest,
     project: ReturnType<ProjectService["get"]> | null,
     work: { purpose: string; workKey: string; scope: Session["scope"]; queued: boolean },
+    /** The machine's runner when the session is placed on one: its providers count. */
+    machine?: RunnerPort,
   ): Session {
     const settings = this.deps.settings.get();
     const now = new Date().toISOString();
-    const provider = this.resolveProvider(req, project ? projectDefaultProvider(project) : null);
-    const defaults = roleModelDefaults(
-      settings.providers[req.role],
-      provider,
-      this.provider(provider),
+    const provider = this.resolveProvider(
+      req,
+      project ? projectDefaultProvider(project) : null,
+      machine,
     );
+    const info = (machine ?? this.deps.runner).providers().find((p) => p.id === provider);
+    const defaults = roleModelDefaults(settings.providers[req.role], provider, info);
     const autonomy = req.autonomy ?? project?.autonomy ?? settings.autonomy.default;
     // A `docker` project's sessions run in containers, which no provider credentials reach yet.
-    this.deps.sandboxes?.assertStartable(req.role, project, this.provider(provider));
+    this.deps.sandboxes?.assertStartable(req.role, project, info);
     this.assertReadOnlySupported(req.role, provider, autonomy);
     // Either value is refused where plan mode doesn't exist, as for PATCH.
     if (req.planMode !== undefined) this.assertPlanModeSupported(req.role, provider);

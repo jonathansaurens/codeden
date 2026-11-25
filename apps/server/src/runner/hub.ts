@@ -39,10 +39,19 @@ export interface RunnerSpec {
   /** Loopback: how to start it when none is live; `null` only attaches to a running one. */
   launch: RunnerLaunchConfig | null;
   sandboxRef?: string | null;
+  /** A machine's label; kept from the record when omitted. */
+  label?: string | null;
+  /** A machine's preference (`MachineWeight`); kept from the record when omitted. */
+  weight?: number | null;
   projectId?: string | null;
   sessionId?: string | null;
   imageVersion?: string | null;
   startTimeouts?: RunnerStartTimeouts;
+  /**
+   * A runner reached through a link that the link itself starts when none runs (a machine's):
+   * on a version mismatch it is drained and exits, and the next link starts the current one.
+   */
+  replaceOnMismatch?: boolean;
 }
 
 export interface RunnerHubOptions {
@@ -119,6 +128,8 @@ export class RunnerHub implements RunnerRouter {
       home: spec.home ?? false,
       runnerId: previous?.runnerId ?? null,
       sandboxRef: spec.sandboxRef ?? null,
+      label: spec.label !== undefined ? spec.label : (previous?.label ?? null),
+      weight: spec.weight !== undefined ? spec.weight : (previous?.weight ?? null),
       projectId: spec.projectId ?? null,
       sessionId: spec.sessionId ?? null,
       state: "starting",
@@ -156,6 +167,7 @@ export class RunnerHub implements RunnerRouter {
       db: this.opts.db,
       store: this.opts.store,
       launch: spec.launch,
+      replaceOnMismatch: spec.replaceOnMismatch,
       mcpUpstreamUrl: mcpOverLink ? undefined : this.opts.mcpUpstreamUrl?.(),
       mcpLink: mcpOverLink ? this.opts.mcpLink : undefined,
       startTimeouts: spec.startTimeouts,
@@ -186,6 +198,23 @@ export class RunnerHub implements RunnerRouter {
       this.opts.store.append([{ type: "runner.deleted", sessionId: null, payload: { id } }]);
     }
     this.opts.onStatus?.();
+  }
+
+  /**
+   * Change a runner's preference for automatic placement (`MachineWeight`): re-registers its
+   * record with the new weight. Its connection is untouched.
+   */
+  setWeight(id: string, weight: number | null): RunnerRecord {
+    const record = findRunnerRecord(this.opts.db, id);
+    if (!record || record.state === "deleted") {
+      throw new ServiceError(404, "runner_not_found", `No runner ${id}`);
+    }
+    const next = { ...record, weight };
+    this.opts.store.append([
+      { type: "runner.registered", sessionId: null, payload: { runner: next } },
+    ]);
+    this.opts.onStatus?.();
+    return next;
   }
 
   /** The client of a runner by record id. */
@@ -282,6 +311,8 @@ function detailsChanged(a: RunnerRecord, b: RunnerRecord): boolean {
     a.backend !== b.backend ||
     a.home !== b.home ||
     a.sandboxRef !== b.sandboxRef ||
+    a.label !== b.label ||
+    a.weight !== b.weight ||
     a.projectId !== b.projectId ||
     a.sessionId !== b.sessionId ||
     a.imageVersion !== b.imageVersion

@@ -8,7 +8,8 @@ import { useProjectProviders } from "@/components/composer/model-picker/use-proj
 import { ConflictCard } from "@/components/project/conflict-card";
 import { NewSessionHeader } from "@/components/project/new-session-header";
 import { useStartDraft } from "@/components/project/use-start-draft";
-import { resolveDraftChoice } from "@/lib/new-session";
+import { useMachines } from "@/lib/machines";
+import { canPlaceOnMachines, machineChoices, resolveDraftChoice } from "@/lib/new-session";
 import { useProject, useProjectChecks, useSnapshot, useSnapshotData } from "@/lib/queries";
 import { newSessionDraftKey, useComposerStore } from "@/stores/composer";
 import { getNewSessionDraft, useNewSessionStore } from "@/stores/new-session";
@@ -30,6 +31,12 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
   );
   // Settings → Providers → Agent sessions: provider, model and effort.
   const agent = useSnapshotData((s) => s.settings.providers.agent, null);
+  // Machines to pick from for this session: GitHub projects that don't run in Docker only.
+  const machineList = useMachines({ enabled: canPlaceOnMachines(project) }).data?.machines;
+  const machines = useMemo(
+    () => machineChoices(project, machineList?.map((m) => m.label) ?? []),
+    [project, machineList],
+  );
   const draft = useNewSessionStore((s) => getNewSessionDraft(s, projectId));
   const { setChoice, setWorkKey } = useNewSessionStore.getState();
   const resolved = useMemo(
@@ -39,8 +46,9 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
         project,
         agent,
         defaultAutonomy,
+        machines,
       }),
-    [draft.choice, providers, project, agent, defaultAutonomy],
+    [draft.choice, providers, project, agent, defaultAutonomy, machines],
   );
   const start = useStartDraft(projectId, resolved, draft.workKey);
   const checks = useProjectChecks(projectId);
@@ -97,6 +105,12 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
             checks={checks}
             projectId={projectId}
             projectPath={project.path}
+            machines={machines}
+            projectSetting={
+              project.execution?.backend === "ssh"
+                ? `On ${project.execution.machine ?? "a machine"}`
+                : "This computer, in a worktree"
+            }
             onChange={(choice) => setChoice(projectId, choice)}
           />
         }

@@ -118,6 +118,18 @@ export function mockProjectApi(world: MockWorld): MockProjectApi {
       if (patch.execution?.backend === "docker" && find(id).kind !== "github") {
         throw new ApiRequestError(400, "backend_unavailable", NOT_GITHUB);
       }
+      if (patch.execution?.backend === "ssh") {
+        if (find(id).kind !== "github") {
+          throw new ApiRequestError(
+            400,
+            "machine_unavailable",
+            "Machines need a GitHub project: each machine clones the repository from GitHub",
+          );
+        }
+        if (!patch.execution.machine) {
+          throw new ApiRequestError(400, "machine_required", "Choose the machine");
+        }
+      }
       const project = {
         ...find(id),
         ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)),
