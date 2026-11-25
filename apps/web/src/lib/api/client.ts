@@ -80,6 +80,7 @@ import type {
   SecretsApi,
   VoiceApi,
 } from "./feature-apis";
+import type { MembersApi } from "./members-api";
 import type { AuthApi, NetworkApi } from "./network-api";
 import type { QueueApi } from "./queue-api";
 import type { MentionCandidate, OpenTerminalOptions, TerminalChannel } from "./types";
@@ -213,6 +214,8 @@ export interface CodeDenClient {
   ): Promise<ResolveConflictResponse>;
 
   // Inbox (§11.1).
+  /** One item, open or not (who answered it, §B.4). */
+  getInboxItem(itemId: string): Promise<InboxItem>;
   resolveInbox(itemId: string, resolution: InboxResolution): Promise<InboxItem>;
   /**
    * Run a failed run's session again on its provider. Rejects with the reason (and fix) when
@@ -292,6 +295,8 @@ export interface CodeDenClient {
   readonly network: NetworkApi;
   /** Sign-in for remote devices (§15.1). */
   readonly auth: AuthApi;
+  /** Members (§B.2): who I am and, for owners, everyone else. */
+  readonly members: MembersApi;
 
   // First-run setup (§14).
   /** Detection results; `refresh` re-runs every check instead of using the cache. */

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  Actor,
   AutonomyLevel,
   CompactSessionResponse,
   ForkSessionRequest,
@@ -27,6 +28,13 @@ import type {
 import type { AutoPlacement } from "../../execution/placement/auto";
 import type { SandboxService } from "../../execution/sandboxes";
 import type { McpTokenStore } from "../../mcp/tokens";
+import {
+  answeredBy,
+  answeredByOf,
+  asSent,
+  assertMayAnswerApproval,
+} from "../../members/attribution";
+import { currentActor } from "../../members/principal";
 import type { SettingsStore } from "../../settings-store";
 import type { ArtifactService } from "../artifacts";
 import { badRequest, conflict, ServiceError } from "../errors";
@@ -68,6 +76,8 @@ import { planReview } from "./review";
 import { startWorkspace } from "./start-workspace";
 
 export interface SessionServiceDeps extends RunnerDeps {
+  /** A member's display name, for "already answered by …" (§B.4). */
+  memberName?: (memberId: string) => string;
   repo: SessionRepo;
   projects: ProjectService;
   inbox: InboxService;
@@ -209,6 +219,13 @@ export class SessionService {
   }
 
   async start(req: StartSessionRequest): Promise<StartSessionResponse> {
+    // The opening message is the user's when a person (or connected agent) started it (§B.4).
+    if (req.input) {
+      req = {
+        ...req,
+        input: asSent(req.input, req.startedBy.kind === "user" ? "user" : "codeden").input,
+      };
+    }
     const { repo, projects } = this.deps;
     // The workspace follows `isGitRepo`: read it once the folder has been checked since start.
     if (req.projectId) await this.deps.projectChecks?.current(req.projectId);
@@ -371,6 +388,9 @@ export class SessionService {
     req: SendMessageRequest,
     from: QueueSender = "user",
   ): Promise<SendMessageResponse> {
+    const sent = asSent(req.input, from);
+    req = { ...req, input: sent.input };
+    from = sent.from;
     const session = this.deps.repo.get(id);
     assertProjectActive(this.deps.projects, session);
     // A newer session holds the role: this one stays archived (§8.1).
@@ -417,6 +437,7 @@ export class SessionService {
   }
 
   async steer(id: string, raw: UserInput): Promise<void> {
+    raw = asSent(raw, raw.from ?? "user").input;
     const session = this.deps.repo.get(id);
     assertProjectActive(this.deps.projects, session);
     if (!BUSY.has(session.status)) throw conflict("No turn is running", "no_turn");
@@ -476,6 +497,34 @@ export class SessionService {
   /** Answer a question or approval; `by` is who answered a question (the user or the PM). */
   async respond(id: string, req: RespondRequest, by: Answerer = "user"): Promise<void> {
     this.deps.repo.get(id);
+    if (req.response.kind === "approval") assertMayAnswerApproval();
+    // Two people answering at once (§B.4): the first answer wins, the second hears who gave it.
+    const key = `${id}\u0000${req.requestId}`;
+    const answered = this.deps.inbox.findForRequest(id, req.requestId);
+    if (answered && answered.status !== "open") throw this.alreadyAnswered(answered.resolution);
+    const claimed = this.answering.get(key);
+    if (claimed !== undefined) throw this.alreadyAnswered({ answeredBy: claimed });
+    this.answering.set(key, currentActor() ?? null);
+    try {
+      await this.answer(id, req, by);
+    } finally {
+      this.answering.delete(key);
+    }
+  }
+
+  /** In-flight answers by request, and who gave each (null: CodeDen or a PM). */
+  private readonly answering = new Map<string, Actor | null>();
+
+  private alreadyAnswered(resolution: unknown) {
+    const actor = answeredByOf(resolution);
+    const name = actor ? (this.deps.memberName?.(actor.memberId) ?? "someone") : null;
+    return conflict(
+      name ? `Already answered by ${name}.` : "This was already answered.",
+      "already_answered",
+    );
+  }
+
+  private async answer(id: string, req: RespondRequest, by: Answerer): Promise<void> {
     // Questions asked through CodeDen's ask_user tool are answered here, not by the provider.
     if (await this.deps.questions.respond(id, req.requestId, req.response, by)) return;
     await this.runnerOf(id)
@@ -490,10 +539,14 @@ export class SessionService {
       });
     const resolution: JsonValue =
       req.response.kind === "approval"
-        ? { decision: req.response.decision, decidedBy: req.response.decidedBy ?? "user" }
+        ? {
+            decision: req.response.decision,
+            decidedBy: req.response.decidedBy ?? "user",
+            ...answeredBy(),
+          }
         : req.response.kind === "answer"
-          ? { answers: req.response.answers, decidedBy: by }
-          : { status: "cancelled" };
+          ? { answers: req.response.answers, decidedBy: by, ...answeredBy() }
+          : { status: "cancelled", ...answeredBy() };
     this.deps.inbox.closeForRequest(id, req.requestId, resolution);
   }
 
@@ -519,8 +572,16 @@ export class SessionService {
     // keeps: a failed session isn't revoked by the lifecycle. Resuming mints a new token.
     this.deps.tokens.revokeSession(id);
     this.deps.inbox.dismissRequestsForSession(id, "session stopped");
+    const stoppedBy = currentActor();
     return this.deps.repo.update(id, (s) =>
-      FINISHED.has(s.status) ? s : { ...s, status: "stopped", endedAt: new Date().toISOString() },
+      FINISHED.has(s.status)
+        ? s
+        : {
+            ...s,
+            status: "stopped",
+            endedAt: new Date().toISOString(),
+            ...(stoppedBy ? { stoppedBy } : {}),
+          },
     );
   }
 

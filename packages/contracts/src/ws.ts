@@ -139,6 +139,11 @@ export const ServerToClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("update"), update: UpdateStatus }),
   z.object({ type: z.literal("pong"), id: z.string() }),
   z.object({ type: z.literal("error"), error: ErrorInfo }),
+  /**
+   * Who is looking at a session (§B.4): the members whose clients watch its transcript now, sent
+   * to every client watching it when that changes (ephemeral; not in the event log).
+   */
+  z.object({ type: z.literal("presence"), sessionId: Id, memberIds: z.array(Id) }),
 ]);
 export type ServerToClientMessage = z.infer<typeof ServerToClientMessage>;
 

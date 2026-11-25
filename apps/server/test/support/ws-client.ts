@@ -13,10 +13,13 @@ export class TestWsClient {
     });
   }
 
-  static async connect(url: string, token: string): Promise<TestWsClient> {
-    const ws = new WebSocket(`${url.replace("http", "ws")}/ws`, {
-      headers: { authorization: `Bearer ${token}` },
-    });
+  static connect(url: string, token: string): Promise<TestWsClient> {
+    return TestWsClient.open(url, { authorization: `Bearer ${token}` });
+  }
+
+  /** Connect with these headers (a remote device's cookie and `Host`, say). */
+  static async open(url: string, headers: Record<string, string>): Promise<TestWsClient> {
+    const ws = new WebSocket(`${url.replace("http", "ws")}/ws`, { headers });
     await new Promise<void>((resolve, reject) => {
       ws.once("open", () => resolve());
       ws.once("error", reject);

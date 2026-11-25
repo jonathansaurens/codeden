@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Id } from "./common";
+import { Actor } from "./members";
 
 /** Where the bytes of an attachment come from. */
 export const AttachmentSource = z.discriminatedUnion("type", [
@@ -71,6 +72,11 @@ export const MessageSender = z.enum([
   "factory",
   "automation",
   "codeden",
+  /**
+   * A connected agent (an agent member, §C.3): its words are untrusted content, never the
+   * user's, so they carry no more authority than its role.
+   */
+  "member",
 ]);
 export type MessageSender = z.infer<typeof MessageSender>;
 
@@ -98,6 +104,12 @@ export const UserInput = z.object({
    * else's starts it again. Absent on every other message.
    */
   checksRound: z.int().positive().optional(),
+  /**
+   * The member who wrote it (§B.4), set by the server from the request's sign-in, never taken
+   * from the client. Absent on messages CodeDen, a PM or the orchestrator wrote, and on every
+   * message stored before members existed.
+   */
+  author: Actor.optional(),
 });
 export type UserInput = z.infer<typeof UserInput>;
 /** Input shape accepted before defaults are applied (`attachments` optional). */

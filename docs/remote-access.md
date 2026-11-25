@@ -76,7 +76,11 @@ How CodeDen treats a request for a trusted address: it counts as coming from ano
 
 ## Signed-in devices
 
-**Settings › Network access › Signed-in devices** lists each phone or tablet with its browser, address and when it was last seen. **Sign out** removes one; **Sign out all** removes them all. Changing the password signs out every device too. A signed-out device goes back to the sign-in page at once.
+**Settings › Network access › Signed-in devices** lists each phone or tablet with its browser, address and when it was last seen. **Sign out** removes one; **Sign out all** removes them all. Changing the password signs out the first owner's devices (members with passphrases of their own stay signed in). A signed-out device goes back to the sign-in page at once.
+
+## Sharing it with other people
+
+The password is the **first owner's** passphrase. To let other people in, invite them from **Settings › Members**: each gets a link to pick their own name and passphrase, and a role (Viewer, Operator or Owner, per project if you like). Once someone has joined, the sign-in page also asks for a name; the owner can leave it empty. Devices that were signed in before members existed stay signed in as the owner. See [Teams](teams.md); for agents that use CodeDen with a token, see [Connected agents](connected-agents.md).
 
 ## Security model
 
@@ -84,10 +88,10 @@ How CodeDen treats a request for a trusted address: it counts as coming from ano
 - **Only a hash is stored.** The password is kept as a salted scrypt hash in `~/.codeden/remote-access.json` (readable only by you where the OS supports file modes). Each device's 90-day session token is random; only its SHA-256 hash is stored, with the device's browser name and when it was last seen.
 - **Session cookie.** A signed-in device holds the token in an `HttpOnly`, `SameSite=Lax` cookie (also `Secure` when CodeDen is served over HTTPS, including through a trusted origin).
 - **Who is remote** is decided by the connection's own address: anything other than this computer's loopback (`127.0.0.0/8`, `::1`, and their IPv4-mapped forms) is remote. `X-Forwarded-For` and similar headers are never trusted, so they grant nothing. The one addition is a trusted origin (above): a request naming its host is also remote, which only ever demands more.
-- **Remote devices sign in with the password; the install token doesn't work for them.** This computer keeps using the install token exactly as before, so `npx codeden` and the desktop app are unaffected.
+- **Remote devices sign in with the password (or a member's own passphrase); the install token doesn't work for them.** This computer keeps using the install token exactly as before, as the first owner, so `npx codeden` and the desktop app are unaffected. Connected agents send their own token (`Authorization: Bearer cda_…`), which is never the install token.
 - **Guessing is throttled.** Only failed sign-ins count, per address. After three wrong passwords each try has to wait 1 s, then 2 s, 4 s … up to 30 s; ten failures within 15 minutes lock that address out for 15 minutes. Other devices keep working. Failed sign-ins are logged with their address (never the password) in `~/.codeden/logs/remote-access.log`.
-- **What a signed-in device can reach:** the web UI, its HTTP API and its WebSockets (live updates, the terminal and browser panels), the same things you can do at the computer.
-- **What is never reachable from the network, even when it's on:** the agents' MCP endpoint (`/mcp`, which answers 404), the runner (it keeps listening on `127.0.0.1` only, as does its MCP proxy), and changing network access itself: the switch and the password can only be changed on the computer running CodeDen (or with the CLI there). A phone can see the settings and sign devices out.
+- **What a signed-in device can reach:** the web UI, its HTTP API and its WebSockets (live updates, the terminal and browser panels), as far as its member's role allows: the owner can do what you can at the computer; Viewers and Operators less ([Teams](teams.md#roles)).
+- **What is never reachable from the network, even when it's on:** the agents' MCP endpoint (`/mcp`, which answers 404), the runner (it keeps listening on `127.0.0.1` only, as does its MCP proxy), and changing network access itself: the switch and the password can only be changed on the computer running CodeDen (or with the CLI there). The owner's phone can see the settings and sign devices out.
 - **Request checks still apply.** `Host` must be a loopback name or, while network access is on, one of this computer's own LAN or VPN addresses on CodeDen's port. `Origin`, when present, must be CodeDen's own: other websites, `null` origins and other ports on the same address are refused.
 - **Turning it off** moves CodeDen back to `127.0.0.1` and drops every connection from other devices. Their sessions stay on the list until they expire or you sign them out, so turning it on again doesn't make you sign in everywhere again.
 

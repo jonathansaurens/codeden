@@ -124,6 +124,7 @@ describe("remote requests", () => {
       remote: true,
       signedIn: false,
       networkEnabled: true,
+      askName: false,
     });
   });
 

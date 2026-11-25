@@ -23,6 +23,7 @@ import { rowToInbox } from "../db/rows";
 import { inboxItems } from "../db/schema";
 import { openRunFailed, runFailedAgain, runFailedInbox } from "../events/reducer/items";
 import type { EventStore } from "../events/store";
+import { assertMayAnswerApproval } from "../members/attribution";
 import { badRequest, notFound } from "./errors";
 
 /** Sends an approval/answer to the agent; provided by the session service. */
@@ -91,8 +92,14 @@ export class InboxService {
    */
   async resolve(id: string, req: ResolveInboxRequest): Promise<InboxItem> {
     const item = this.get(id);
-    if (item.status !== "open") return item;
     const answerable = (item.kind === "approval" || item.kind === "question") && item.requestId;
+    // Dismissing an approval decides it as much as answering does (§C.3).
+    if (item.kind === "approval") assertMayAnswerApproval();
+    // An answer to an item someone already answered: the session says who (§B.4).
+    if (item.status !== "open" && answerable && req.response && item.sessionId && item.requestId) {
+      await this.responder()(item.sessionId, item.requestId, req.response);
+    }
+    if (item.status !== "open") return item;
     if (answerable && req.status === "resolved") {
       if (!req.response) throw badRequest("This item needs a response", "response_required");
       if (!item.sessionId || !item.requestId) throw badRequest("Item has no session");
@@ -110,6 +117,16 @@ export class InboxService {
       { type: "inbox.updated", sessionId: item.sessionId, payload: { item: next } },
     ]);
     return next;
+  }
+
+  /** The item mirroring a session's request, open or not (first answer wins, §B.4). */
+  findForRequest(sessionId: string, requestId: string): InboxItem | undefined {
+    const row = this.db
+      .select()
+      .from(inboxItems)
+      .where(and(eq(inboxItems.sessionId, sessionId), eq(inboxItems.requestId, requestId)))
+      .get();
+    return row ? rowToInbox(row) : undefined;
   }
 
   /** Close the open item mirroring a session's request, if there is one. */

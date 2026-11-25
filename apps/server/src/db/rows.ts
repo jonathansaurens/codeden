@@ -91,11 +91,13 @@ export function sessionToRow(s: Session): Omit<SessionRow, "usage" | "startMeta"
     startError: s.startError ?? null,
     mcpServers: s.mcpServers ?? null,
     placementNote: s.placementNote ?? null,
+    stoppedBy: s.stoppedBy ?? null,
   };
 }
 
 export function rowToSession(r: SessionRow): Session {
-  return Session.parse(r);
+  const { stoppedBy, ...rest } = r;
+  return Session.parse(stoppedBy ? { ...r } : rest);
 }
 
 export function inboxToRow(i: InboxItem): InboxRow {

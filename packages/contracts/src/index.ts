@@ -43,6 +43,7 @@ export * from "./input";
 export * from "./items";
 export * from "./machines";
 export * from "./mcp-status";
+export * from "./members";
 export * from "./network";
 export * from "./orchestration";
 export * from "./orchestration-api";

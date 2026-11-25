@@ -18,6 +18,11 @@ import { SandboxService } from "./execution/sandboxes";
 import { MachineService } from "./execution/ssh/machines";
 import { writeJsonFile } from "./json-file";
 import { createMcpHandler } from "./mcp/endpoint";
+import { MemberAuth } from "./members/auth";
+import { ownsEverything } from "./members/authorize";
+import { principalOf } from "./members/principal";
+import { AgentRateLimiter } from "./members/rate-limit";
+import { canWatchSession, eventFilterFor, terminalAccess } from "./members/sockets";
 import { NetworkAccess } from "./network/access";
 import type { InterfaceMap } from "./network/addresses";
 import { HttpListener } from "./network/listener";
@@ -162,6 +167,8 @@ export interface StartServerOptions {
    * runs the add checks.
    */
   machines?: { sshCommand?: string; command?: string; exec?: Exec; connectTimeoutMs?: number };
+  /** Connected agents' per-token rate limit (tests make it small and never refilling). */
+  agentRateLimit?: { burst: number; perMinute: number };
   /** Network interfaces for the address list (tests). */
   networkInterfaces?: () => InterfaceMap;
   log?: (message: string) => void;
@@ -183,6 +190,11 @@ export interface RunningServer {
   runners: RunnerHub;
   /** Network access (§15.1): the switch, password, remote sessions and the listener binding. */
   network: NetworkAccess;
+  /**
+   * The HTTP app, for in-process requests (tests simulate other devices by passing the peer
+   * address as `env.incoming.socket.remoteAddress`).
+   */
+  app: Hono;
   /** Stop listening and disconnect from the runner (which keeps running). */
   close(opts?: { stopRunner?: boolean }): Promise<void>;
 }
@@ -228,6 +240,11 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     flushMs: opts.realtimeFlushMs,
     updateStatus: () => services.updates.snapshot(),
     artifacts: { artifactForPath: (path) => services.artifacts.artifactForPath(path) },
+    access: {
+      eventFilter: (principal) => eventFilterFor(services, principal),
+      canWatch: (principal, sessionId) => canWatchSession(services, principal, sessionId),
+      team: () => services.members.isTeam(),
+    },
   });
   const secrets =
     opts.secrets === "memory"
@@ -325,6 +342,13 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     securityLogFile: paths.remoteAccessLog,
     log,
   });
+  const memberAuth = new MemberAuth({
+    members: services.members,
+    network,
+    rate: opts.agentRateLimit
+      ? new AgentRateLimiter(Date.now, opts.agentRateLimit.burst, opts.agentRateLimit.perMinute)
+      : undefined,
+  });
   const sessionCookie = () => `codeden_session_${port}`;
   const tokenCookie = () => `codeden_token_${port}`;
   const allowedOrigins = () => {
@@ -351,13 +375,21 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
         sessionCookieName: sessionCookie,
         verifySession: (token) => network.store.verifySession(token),
       },
+      principals: memberAuth.hooks(),
     }),
   );
   const api = createApi({
     services,
     runnerStatus,
     startedAt,
-    network: { network, sessionCookie, tokenCookie, token: opts.token },
+    network: {
+      network,
+      sessionCookie,
+      tokenCookie,
+      token: opts.token,
+      members: { auth: memberAuth, invites: services.invites },
+    },
+    memberAuth,
     log,
     shutdown: ({ stopRunner }) => {
       opts.onShutdownStart?.();
@@ -376,7 +408,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   app.all("/mcp", (c) => mcp(c.req.raw));
   app.get(
     "/ws",
-    upgradeWebSocket(() => hub.handlers()),
+    upgradeWebSocket((c) => hub.handlers(principalOf(c))),
   );
   const terminals = new TerminalBridge({
     runner: services.runner,
@@ -392,7 +424,15 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     const query = TerminalQuery.safeParse(c.req.query());
     if (!query.success)
       return c.json({ error: { code: "bad_request", message: "Invalid terminal query" } }, 400);
-    return upgradeWebSocket(() => terminals.handlers(query.data))(c, next);
+    const principal = principalOf(c);
+    const access = terminalAccess(services, principal, query.data);
+    if (access === null)
+      return c.json(
+        { error: { code: "forbidden", message: "This terminal isn't yours to open" } },
+        403,
+      );
+    const strict = principal !== undefined && !ownsEverything(principal.member);
+    return upgradeWebSocket(() => terminals.handlers(query.data, { access, strict }))(c, next);
   });
   const browserBridge = mountBrowserSockets(app, services, log);
   mountWeb(app, findWebDir(opts.webDir));
@@ -500,6 +540,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     runner,
     runners,
     network,
+    app,
     close,
   };
 }

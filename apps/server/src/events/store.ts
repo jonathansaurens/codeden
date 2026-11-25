@@ -2,6 +2,7 @@ import type { EventEnvelope, NewEvent, RawEventEnvelope } from "@codeden/contrac
 import { and, asc, gt, inArray, isNull, max, or } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { events } from "../db/schema";
+import { currentActor } from "../members/principal";
 import { DbProjectionReader, type Tx } from "./projection-db";
 import { applyProjection } from "./projector";
 import type { ProjectionReader } from "./reducer/types";
@@ -60,7 +61,8 @@ export class EventStore {
       .where(and(gt(events.seq, afterSeq), sessionFilter))
       .orderBy(asc(events.seq))
       .limit(limit)
-      .all();
+      .all()
+      .map(({ actor, ...row }) => (actor ? { ...row, actor } : row));
   }
 
   /** Subscribe to committed events; returns an unsubscribe function. */
@@ -82,13 +84,25 @@ export class EventStore {
   }
 }
 
+/**
+ * Insert one event and its projections. Events appended while a member's request runs carry
+ * that member as their `actor` (§B.4); agents' own events never do.
+ */
 function insertAndProject(tx: Tx, event: NewEvent, ts: string, out: RawEventEnvelope[]): void {
+  const actor = event.type.startsWith("agent.") ? undefined : (event.actor ?? currentActor());
   const row = tx
     .insert(events)
-    .values({ sessionId: event.sessionId, type: event.type, payload: event.payload, ts })
+    .values({
+      sessionId: event.sessionId,
+      type: event.type,
+      payload: event.payload,
+      ts,
+      actor: actor ?? null,
+    })
     .returning({ seq: events.seq })
     .get();
-  const envelope = { ...event, seq: row.seq, ts } as EventEnvelope;
+  const { actor: _given, ...rest } = event;
+  const envelope = { ...rest, seq: row.seq, ts, ...(actor ? { actor } : {}) } as EventEnvelope;
   out.push(envelope);
   for (const derived of applyProjection(tx, envelope)) insertAndProject(tx, derived, ts, out);
 }

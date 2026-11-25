@@ -52,6 +52,7 @@ const SENDERS: Readonly<Record<MessageSender, string>> = {
   factory: "Software factory",
   automation: "Automation",
   codeden: "CodeDen",
+  member: "Connected agent",
 };
 
 const DECISIONS: Readonly<Record<ApprovalDecision, string>> = {
