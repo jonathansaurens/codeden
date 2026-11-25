@@ -58,6 +58,7 @@ import {
   httpVoiceApi,
 } from "./http-features";
 import { httpGithubApi, httpOrchestrationApi, httpSessionConflictApi } from "./http-orchestration";
+import { httpMembersApi } from "./members-api";
 import { httpAuthApi, httpNetworkApi } from "./network-api";
 import { httpQueueApi } from "./queue-api";
 import { RealtimeSocket } from "./realtime-socket";
@@ -203,6 +204,7 @@ export function createHttpClient(origin: string, opts: HttpClientOptions = {}): 
     secrets: httpSecretsApi(http),
     network: httpNetworkApi(http),
     auth: httpAuthApi(origin),
+    members: httpMembersApi(http),
 
     getSetupStatus: (o) =>
       get(`/setup/status${o?.refresh ? "?refresh=1" : ""}`, (v) => SetupStatus.parse(v)),

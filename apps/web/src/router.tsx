@@ -15,6 +15,7 @@ import { PanelLoading, ReloadPrompt } from "@/components/common/lazy-component";
 import { FactoryGuideSheet } from "@/components/factory/factory-guide";
 import { AppShell } from "@/components/shell/app-shell";
 import { AppToaster } from "@/components/shell/app-toaster";
+import { JoinScreen } from "@/components/shell/join";
 import { SignInScreen } from "@/components/shell/sign-in";
 import { UnauthorizedScreen } from "@/components/shell/unauthorized";
 import { isChunkLoadError } from "@/lib/chunk-error";
@@ -74,6 +75,8 @@ function RouteError({ error }: ErrorComponentProps) {
 
 function Root() {
   const auth = useConnectionStore((s) => s.auth);
+  // An invite link (`/join#…`) shows the join page, whether or not this device is signed in.
+  if (window.location.pathname === "/join") return <JoinScreen />;
   if (auth === "unauthorized") return <UnauthorizedScreen />;
   if (auth === "signin") return <SignInScreen />;
   return (

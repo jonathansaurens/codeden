@@ -8,6 +8,8 @@ import { noSandboxes, type SandboxService } from "../execution/sandboxes";
 import { ToolRegistry } from "../mcp/registry";
 import { McpTokenStore } from "../mcp/tokens";
 import { allTools } from "../mcp/tools";
+import { InviteService } from "../members/invites";
+import { MemberService } from "../members/service";
 import type { HomePaths } from "../paths";
 import type { SettingsStore } from "../settings-store";
 import { AgentConfigService } from "./agent-config/agent-config-service";
@@ -206,6 +208,10 @@ export interface AppServices {
   /** Hides CodeDen's conversations from providers' own apps (Settings → Providers). */
   providerHistory: ProviderHistoryService;
   userHome: string;
+  /** People and connected agents who may use this server (Part B, C), the first owner first. */
+  members: MemberService;
+  /** Owners' invites to join (§B.2). */
+  invites: InviteService;
   /** A session's files, on the server's disk or its runner's (`docs/remote-runners.md` §10). */
   workspaceFs(session: Session): WorkspaceFs;
 }
@@ -241,6 +247,7 @@ export function createServices(opts: ServicesOptions): AppServices {
     },
   });
   let sessions: SessionService | undefined;
+  const members = new MemberService({ db: opts.db, store: opts.store });
   const inbox = new InboxService(opts.db, opts.store, () => (sessionId, requestId, response) => {
     if (!sessions) throw new Error("Session service not ready");
     return sessions.respond(sessionId, { requestId, response });
@@ -572,6 +579,8 @@ export function createServices(opts: ServicesOptions): AppServices {
       git: gitBroker,
     }),
     tools: undefined as unknown as ToolRegistry,
+    members,
+    invites: new InviteService(opts.db, members),
     workspaceFs: (session) =>
       workspaceFsFor({ runner: opts.runner, runners, home: opts.paths.home }, session),
   };

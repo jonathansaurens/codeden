@@ -158,6 +158,7 @@ export class NetworkAccess {
         lastSeenAt: s.lastSeenAt,
         expiresAt: s.expiresAt,
         current: s.id === caller.sessionId,
+        memberId: s.memberId,
       })),
       remote: caller.remote,
     };
@@ -227,12 +228,17 @@ export class NetworkAccess {
     const generated = "generate" in input ? generatePassphrase() : null;
     await this.store.setPassword(generated ?? (input as { password: string }).password);
     this.listener.dropRemote();
-    this.log("network access password changed: every remote device was signed out");
+    this.log("network access password changed: the first owner's devices were signed out");
     return generated;
   }
 
   /** Close connections that came through the trusted proxy. */
   dropProxied(): void {
+    this.listener.dropRemote();
+  }
+
+  /** Close remote connections, so a device whose member lost access notices at once. */
+  dropRemote(): void {
     this.listener.dropRemote();
   }
 

@@ -13,6 +13,7 @@ import { eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { rowToAutomation } from "../db/rows";
 import { automations, inboxItems, sessions } from "../db/schema";
+import type { MemberAuth } from "../members/auth";
 import type { AppServices } from "../services/container";
 import { badRequest } from "../services/errors";
 import { archivedSessionCounts, snapshotSessions } from "../services/sessions/archived";
@@ -25,6 +26,7 @@ import { factoryRoutes, projectFactoryRoutes } from "./factory";
 import { githubRoutes, projectGithubRoutes, prRoutes, sessionGithubRoutes } from "./github";
 import { imageRoutes } from "./images";
 import { inboxRoutes } from "./inbox";
+import { memberRoutes } from "./members";
 import { authRoutes, type NetworkRouteContext, networkRoutes } from "./network";
 import { conflictRoutes, orchestrationRoutes } from "./orchestration";
 import { projectRoutes } from "./projects";
@@ -48,6 +50,8 @@ export interface ApiContext {
   shutdown: (opts: { stopRunner: boolean }) => void;
   /** Network access (§15.1). */
   network: NetworkRouteContext;
+  /** Members (Part B, C): who each request is. */
+  memberAuth: MemberAuth;
   log?: (message: string) => void;
 }
 
@@ -110,6 +114,10 @@ export function createApi(ctx: ApiContext) {
       .route("/secrets", secretRoutes(s))
       .route("/network", networkRoutes(ctx.network))
       .route("/auth", authRoutes(ctx.network))
+      .route(
+        "/members",
+        memberRoutes({ services: s, auth: ctx.memberAuth, network: ctx.network.network }),
+      )
       .route("/", fileRoutes(s))
       .get("/settings", (c) => c.json(s.settings.get()))
       .patch("/settings", async (c) => {

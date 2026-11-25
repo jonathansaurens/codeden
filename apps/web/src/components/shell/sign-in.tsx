@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Loader2, LockKeyhole } from "lucide-react";
+import { Eye, EyeOff, Loader2, LockKeyhole, UserRound } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,10 +24,19 @@ function useCountdown(): [number, (seconds: number) => void] {
 export function SignInScreen({ onSignedIn }: { onSignedIn?: () => void }) {
   const client = useClient();
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  // With more than one person on this server, the name says whose passphrase it is (§B.2).
+  const [askName, setAskName] = useState(false);
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [wait, setWait] = useCountdown();
+  useEffect(() => {
+    client.auth
+      .status()
+      .then((status) => setAskName(status.askName))
+      .catch(() => {});
+  }, [client]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -35,7 +44,8 @@ export function SignInScreen({ onSignedIn }: { onSignedIn?: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await client.auth.signIn(password);
+      const who = name.trim();
+      await (who ? client.auth.signIn(password, who) : client.auth.signIn(password));
       if (onSignedIn) onSignedIn();
       else window.location.reload();
     } catch (err) {
@@ -66,11 +76,38 @@ export function SignInScreen({ onSignedIn }: { onSignedIn?: () => void }) {
         <Logo className="mx-auto mb-5 size-14" />
         <h1 className="text-center text-xl font-semibold tracking-tight">Sign in to CodeDen</h1>
         <p id="sign-in-help" className="mt-2 text-center text-sm text-muted-foreground">
-          Enter the network access password you set on the computer running CodeDen.
+          {askName
+            ? "Enter your name and passphrase. The owner can leave the name empty and use the network access password."
+            : "Enter the network access password you set on the computer running CodeDen."}
         </p>
 
-        <label htmlFor="codeden-password" className="mt-7 mb-1.5 block text-[13px] font-medium">
-          Password
+        {askName && (
+          <>
+            <label htmlFor="codeden-name" className="mt-7 mb-1.5 block text-[13px] font-medium">
+              Name
+            </label>
+            <div className="relative">
+              <UserRound className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="codeden-name"
+                name="username"
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="h-12 pl-9 text-base"
+              />
+            </div>
+          </>
+        )}
+
+        <label
+          htmlFor="codeden-password"
+          className={`${askName ? "mt-4" : "mt-7"} mb-1.5 block text-[13px] font-medium`}
+        >
+          {askName ? "Passphrase" : "Password"}
         </label>
         <div className="relative">
           <LockKeyhole className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />

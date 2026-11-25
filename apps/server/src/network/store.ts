@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
+  OWNER_MEMBER_ID,
   parseTrustedOrigin,
   passwordProblem,
   REMOTE_SESSION_DAYS,
@@ -80,8 +81,9 @@ export class RemoteAccessStore {
   }
 
   /**
-   * Set the password after checking the rules (throws `PasswordRuleError`), and sign out every
-   * remote device.
+   * Set the password (the first owner's passphrase) after checking the rules (throws
+   * `PasswordRuleError`), and sign out every device signed in with it: the first owner's. Other
+   * members have passphrases of their own and stay signed in.
    */
   async setPassword(password: string): Promise<void> {
     const problem = passwordProblem(password);
@@ -90,7 +92,7 @@ export class RemoteAccessStore {
     this.data = {
       ...this.data,
       password: { hash, setAt: new Date(this.now()).toISOString() },
-      sessions: [],
+      sessions: this.data.sessions.filter((s) => s.memberId !== OWNER_MEMBER_ID),
     };
     this.save();
   }
@@ -163,8 +165,16 @@ export class RemoteAccessStore {
     return true;
   }
 
-  /** Start a 90-day session for a device; returns the token for its cookie (stored hashed). */
-  createSession(device: { label: string; address: string | null; addressViaProxy?: boolean }): {
+  /**
+   * Start a 90-day session for a device, signed in as `memberId` (the first owner by default);
+   * returns the token for its cookie (stored hashed).
+   */
+  createSession(device: {
+    label: string;
+    address: string | null;
+    addressViaProxy?: boolean;
+    memberId?: string;
+  }): {
     token: string;
     session: RemoteSessionRecord;
   } {
@@ -173,6 +183,7 @@ export class RemoteAccessStore {
     const session: RemoteSessionRecord = {
       id: randomUUID(),
       tokenHash: sha256(token),
+      memberId: device.memberId ?? OWNER_MEMBER_ID,
       label: device.label.slice(0, LABEL_MAX) || "Unknown device",
       address: device.address,
       addressViaProxy: device.addressViaProxy ?? false,
@@ -214,6 +225,18 @@ export class RemoteAccessStore {
     if (this.data.sessions.length === before) return false;
     this.save();
     return true;
+  }
+
+  /** Sign out every device of one member (it was deleted); returns how many. */
+  revokeMember(memberId: string): number {
+    const before = this.data.sessions.length;
+    this.data = {
+      ...this.data,
+      sessions: this.data.sessions.filter((s) => s.memberId !== memberId),
+    };
+    const removed = before - this.data.sessions.length;
+    if (removed > 0) this.save();
+    return removed;
   }
 
   /** Sign out every device. */

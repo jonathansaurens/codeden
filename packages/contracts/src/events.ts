@@ -21,6 +21,7 @@ import { Project } from "./entities/project";
 import { Session } from "./entities/session";
 import { FACTORY_EVENT_PAYLOADS } from "./factory-api";
 import { GITHUB_EVENT_PAYLOADS } from "./github";
+import { MemberDeletedPayload, MemberEventPayload } from "./members";
 import { ConflictRecord, Notice } from "./orchestration";
 import { PtyId } from "./runner/commands";
 import { RunnerDeletedPayload, RunnerRecordRef, RunnerRegisteredPayload } from "./runners";
@@ -102,6 +103,12 @@ export const EventEnvelope = z.discriminatedUnion("type", [
   ),
   globalEvent("artifact.created", z.object({ artifact: Artifact })),
   globalEvent("settings.updated", z.object({ settings: Settings })),
+  /** A member joined, or an owner added a connected agent (projected into `members`). */
+  globalEvent("member.created", MemberEventPayload),
+  /** A member's name, roles, approval flag or disabled state changed. */
+  globalEvent("member.updated", MemberEventPayload),
+  /** An owner deleted a member; its devices and tokens were revoked first. */
+  globalEvent("member.deleted", MemberDeletedPayload),
   /**
    * The server added a runner, or re-registered one with new details (projected into
    * `runners`). The home runner is registered on every start.

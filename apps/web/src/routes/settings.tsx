@@ -16,6 +16,7 @@ import {
   SlidersHorizontal,
   Smartphone,
   Sparkles,
+  Users,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
@@ -28,6 +29,7 @@ import { DesktopSettings } from "@/components/settings/sections-desktop";
 import { GithubSettings } from "@/components/settings/sections-github";
 import { ImageSettings } from "@/components/settings/sections-images";
 import { NotificationSettings } from "@/components/settings/sections-media";
+import { MembersSettings } from "@/components/settings/sections-members";
 import { NetworkSettings } from "@/components/settings/sections-network";
 import { VoiceSettings } from "@/components/settings/sections-voice";
 import { SettingsSection } from "@/components/settings/settings-ui";
@@ -88,6 +90,7 @@ const SECTIONS: { id: string; label: string; icon: LucideIcon; render: () => Rea
     render: () => <NotificationSettings />,
   },
   { id: "network", label: "Network access", icon: Smartphone, render: () => <NetworkSettings /> },
+  { id: "members", label: "Members", icon: Users, render: () => <MembersSettings /> },
   ...(platform.capabilities.osIntegration
     ? [{ id: "desktop", label: "App", icon: AppWindow, render: () => <DesktopSettings /> }]
     : []),

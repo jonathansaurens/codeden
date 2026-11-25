@@ -17,6 +17,7 @@ import { DockerBackend } from "./execution/docker/backend";
 import { SandboxService } from "./execution/sandboxes";
 import { writeJsonFile } from "./json-file";
 import { createMcpHandler } from "./mcp/endpoint";
+import { MemberAuth } from "./members/auth";
 import { NetworkAccess } from "./network/access";
 import type { InterfaceMap } from "./network/addresses";
 import { HttpListener } from "./network/listener";
@@ -175,6 +176,11 @@ export interface RunningServer {
   runners: RunnerHub;
   /** Network access (§15.1): the switch, password, remote sessions and the listener binding. */
   network: NetworkAccess;
+  /**
+   * The HTTP app, for in-process requests (tests simulate other devices by passing the peer
+   * address as `env.incoming.socket.remoteAddress`).
+   */
+  app: Hono;
   /** Stop listening and disconnect from the runner (which keeps running). */
   close(opts?: { stopRunner?: boolean }): Promise<void>;
 }
@@ -306,6 +312,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     securityLogFile: paths.remoteAccessLog,
     log,
   });
+  const memberAuth = new MemberAuth({ members: services.members, network });
   const sessionCookie = () => `codeden_session_${port}`;
   const tokenCookie = () => `codeden_token_${port}`;
   const allowedOrigins = () => {
@@ -332,13 +339,21 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
         sessionCookieName: sessionCookie,
         verifySession: (token) => network.store.verifySession(token),
       },
+      principals: memberAuth.hooks(),
     }),
   );
   const api = createApi({
     services,
     runnerStatus,
     startedAt,
-    network: { network, sessionCookie, tokenCookie, token: opts.token },
+    network: {
+      network,
+      sessionCookie,
+      tokenCookie,
+      token: opts.token,
+      members: { auth: memberAuth, invites: services.invites },
+    },
+    memberAuth,
     log,
     shutdown: ({ stopRunner }) => {
       opts.onShutdownStart?.();
@@ -480,6 +495,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     runner,
     runners,
     network,
+    app,
     close,
   };
 }

@@ -7,6 +7,7 @@ import {
   speechExcerpt,
 } from "@codeden/contracts";
 import type { CodeDenClient } from "../client";
+import { mockMembersApi } from "../members-api";
 import { mockAuthApi, mockNetworkApi } from "../network-api";
 import { mockUpdatesApi } from "../updates-api";
 import { mockTerminal } from "./channels";
@@ -48,6 +49,7 @@ type WorkbenchApi = Pick<
   | "updates"
   | "network"
   | "auth"
+  | "members"
   | "loginCommand"
   | "refreshModels"
   | "projectModels"
@@ -194,6 +196,7 @@ export function workbenchApi(world: MockWorld): WorkbenchApi {
     updates: mockUpdatesApi(),
     network: mockNetworkApi(),
     auth: mockAuthApi(),
+    members: mockMembersApi(),
     loginCommand: (tool) => {
       if (tool === "codex") codexFixed = true;
       const command = {

@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
+import { type Principal, runAs, setPrincipal } from "./members/principal";
 import { isLoopbackAddress, normalizeAddress } from "./network/addresses";
 import { proxiedSockets } from "./network/listener";
 import { tokensEqual } from "./token";
@@ -19,7 +20,13 @@ const PWA_FILES = new Set([
 ]);
 
 /** Sign-in endpoints a signed-out remote device may call. */
-const AUTH_PATHS = new Set(["/api/auth/status", "/api/auth/sign-in", "/api/auth/sign-out"]);
+const AUTH_PATHS = new Set([
+  "/api/auth/status",
+  "/api/auth/sign-in",
+  "/api/auth/sign-out",
+  "/api/auth/invite",
+  "/api/auth/join",
+]);
 
 /** What the security middleware needs to know about network access (§15.1). */
 export interface RemoteAuth {
@@ -37,7 +44,27 @@ export interface RemoteAuth {
   /** Cookie holding a remote session token. */
   sessionCookieName(): string;
   /** The live session for a token, if any. */
-  verifySession(token: string | undefined): { id: string } | undefined;
+  verifySession(token: string | undefined): { id: string; memberId?: string } | undefined;
+}
+
+/** What a bearer token other than the install token gets: its principal, or a refusal. */
+export type BearerCheck =
+  | { principal: Principal }
+  | { refused: 401 | 429; retryAfterSec?: number; message: string };
+
+/**
+ * Members (Part B, C): who each authenticated request runs as. Without it (tests of the bare
+ * middleware) requests carry no principal.
+ */
+export interface PrincipalHooks {
+  /** The install token acts as the first owner. */
+  install(): Principal;
+  /** A remote session's member, or undefined when it is gone or disabled. */
+  session(session: { id: string; memberId?: string }): Principal | undefined;
+  /** Does this bearer token look like one the hooks check (a connected agent's)? */
+  claims(token: string): boolean;
+  /** Check a connected agent's token: its principal, or 401 / 429 (throttled, rate limited). */
+  bearer(token: string, c: Context): BearerCheck;
 }
 
 export interface SecurityOptions {
@@ -53,6 +80,28 @@ export interface SecurityOptions {
   loopbackOnlyPaths?: ReadonlySet<string>;
   /** Network access; omitted means loopback only. */
   remote?: RemoteAuth;
+  /** Members: the principal of each request (§B.2). */
+  principals?: PrincipalHooks;
+}
+
+/** Continue as `principal` (sets it on the context and runs the rest of the chain as it). */
+function proceedAs(c: Context, next: () => Promise<void>, principal: Principal | undefined) {
+  if (!principal) return next();
+  setPrincipal(c, principal);
+  return runAs(principal, next);
+}
+
+/** `Authorization: Bearer <token>`, if present. */
+function bearerOf(c: Context): string | undefined {
+  const auth = c.req.header("authorization");
+  return auth?.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : undefined;
+}
+
+/** A refused bearer token, as JSON (with `Retry-After` when throttled). */
+function refuseBearer(c: Context, check: Extract<BearerCheck, { refused: number }>): Response {
+  if (check.retryAfterSec !== undefined) c.header("Retry-After", String(check.retryAfterSec));
+  const code = check.refused === 429 ? "rate_limited" : "unauthorized";
+  return c.json({ error: { code, message: check.message } }, check.refused);
 }
 
 /** Hostname part of a Host header (`127.0.0.1:4317` -> `127.0.0.1`, `[::1]:80` -> `[::1]`). */
@@ -175,8 +224,11 @@ function isShellRequest(c: Context): boolean {
  *    is remote even from a loopback peer, with its own `Origin` rule, and only while network
  *    access is on. A loopback request carrying a proxy's forwarding headers for any other
  *    `Host` is refused, so a proxy's client can't name a loopback host and pass as local.
- * 4. Remote peers need a remote session cookie (from the password sign-in); the install token
- *    is never accepted from them, and loopback-only paths answer 404.
+ * 4. Remote peers need a remote session cookie (from the password sign-in) or a connected
+ *    agent's bearer token; the install token is never accepted from them, and loopback-only
+ *    paths answer 404.
+ * 5. Every authenticated request runs as its principal (the install token as the first owner);
+ *    what it may do is decided per route and message later (`members/authorize.ts`).
  */
 export function securityMiddleware(opts: SecurityOptions): MiddlewareHandler {
   return async (c, next) => {
@@ -224,6 +276,7 @@ export function securityMiddleware(opts: SecurityOptions): MiddlewareHandler {
     if (opts.publicPaths?.has(c.req.path) || PWA_FILES.has(c.req.path)) return next();
     if (AUTH_PATHS.has(c.req.path)) return next();
 
+    const owner = () => opts.principals?.install();
     const queryToken = c.req.query("token");
     if (queryToken !== undefined) {
       if (!tokensEqual(queryToken, opts.token)) return c.text("Invalid token", 401);
@@ -237,16 +290,18 @@ export function securityMiddleware(opts: SecurityOptions): MiddlewareHandler {
         url.searchParams.delete("token");
         return c.redirect(`${url.pathname}${url.search}${url.hash}`, 302);
       }
-      return next();
+      return proceedAs(c, next, owner());
     }
 
-    const auth = c.req.header("authorization");
-    const bearer = auth?.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : undefined;
-    if (
-      tokensEqual(bearer, opts.token) ||
-      tokensEqual(getCookie(c, opts.cookieName()), opts.token)
-    ) {
-      return next();
+    const bearer = bearerOf(c);
+    if (tokensEqual(bearer, opts.token)) return proceedAs(c, next, owner());
+    // A connected agent on this machine uses its own token, and acts as itself, not the owner.
+    if (bearer && opts.principals?.claims(bearer)) {
+      const check = opts.principals.bearer(bearer, c);
+      return "principal" in check ? proceedAs(c, next, check.principal) : refuseBearer(c, check);
+    }
+    if (tokensEqual(getCookie(c, opts.cookieName()), opts.token)) {
+      return proceedAs(c, next, owner());
     }
 
     if (c.req.header("accept")?.includes("text/html")) {
@@ -270,7 +325,23 @@ async function remoteGate(
   }
   const session = opts.remote?.verifySession(getCookie(c, opts.remote.sessionCookieName()));
   if (session) {
-    await next();
+    if (!opts.principals) {
+      await next();
+      return;
+    }
+    // A session of a member who was disabled or deleted signs nobody in.
+    const principal = opts.principals.session(session);
+    if (principal) {
+      await proceedAs(c, next, principal);
+      return;
+    }
+  }
+  // Connected agents send their token; the install token is never accepted from a remote peer.
+  const bearer = bearerOf(c);
+  if (bearer && opts.principals?.claims(bearer)) {
+    const check = opts.principals.bearer(bearer, c);
+    if (!("principal" in check)) return refuseBearer(c, check);
+    await proceedAs(c, next, check.principal);
     return;
   }
   // The UI itself is public (it is the open-source bundle): it shows the sign-in page.
