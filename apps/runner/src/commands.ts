@@ -16,6 +16,7 @@ import {
 } from "./git/checkpoints";
 import * as gitOps from "./git/ops";
 import { unpushed } from "./git/unpushed";
+import { sampleHostResources } from "./host/resources";
 import type { Journal } from "./journal";
 import type { McpLinkChannel } from "./mcp/link-upstream";
 import { listPorts } from "./ports";
@@ -84,6 +85,8 @@ export async function executeCommand(core: RunnerCore, command: RunnerCommand): 
     case "runner.shutdown":
       core.shutdown();
       return {};
+    case "host.resources":
+      return sampleHostResources();
     case "provider.detect": {
       // A long-lived runner would otherwise keep the PATH it started with; tools installed
       // since then are found, and agents and terminals started afterwards see them too.

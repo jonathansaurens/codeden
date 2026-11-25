@@ -46,6 +46,7 @@ import { hasRightPanel } from "@/lib/session-workspace";
 import { cn } from "@/lib/utils";
 import { useViewport } from "@/lib/viewport";
 import { useLayoutStore } from "@/stores/layout";
+import { PlacementNote } from "./placement-note";
 import { SessionGithubBadges } from "./session-github-badges";
 
 function Chip({
@@ -151,6 +152,7 @@ export function ThreadHeader({ session, running }: { session: Session; running: 
           {statusLabel[session.status]}
           {session.archivedAt && " · Archived"}
         </span>
+        <PlacementNote note={session.placementNote} />
       </div>
 
       <div className="ml-1 hidden min-w-0 shrink items-center gap-1.5 overflow-hidden @[36rem]:flex">

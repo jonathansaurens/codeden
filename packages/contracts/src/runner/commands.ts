@@ -9,6 +9,7 @@ import { CHECK_OUTPUT_LIMIT } from "../checks";
 import { AutonomyLevel, Id, ProviderId, ReasoningEffort } from "../common";
 import { UnpushedWork } from "../execution";
 import { UserInput } from "../input";
+import { HostResources } from "../machines";
 import { CHECK_MAX_TIMEOUT_SEC, ProjectConfigFile } from "../project-config";
 import {
   ProjectModels,
@@ -72,6 +73,12 @@ export const RunnerCommand = z.discriminatedUnion("name", [
   }),
   /** Exit the runner process after closing sessions and terminals. */
   z.object({ name: z.literal("runner.shutdown") }),
+  /**
+   * The machine's free capacity for automatic placement (`HostResources`,
+   * `docs/machines-teams-and-agents.md` §A.5): its CPUs and how busy they were over about a
+   * second, and its total and available memory. Takes about a second to answer.
+   */
+  z.object({ name: z.literal("host.resources") }),
   /**
    * Detect installed providers (all when `providerId` is omitted). Also refreshes their model
    * lists: in the background, or before answering when `waitForModels` is set.
@@ -430,6 +437,7 @@ export const RunnerCommandResults = {
   "runner.drain": Empty,
   "runner.configure": z.object({ mcpProxyUrl: z.string().nullable() }),
   "runner.shutdown": Empty,
+  "host.resources": HostResources,
   "provider.detect": z.object({
     statuses: z.array(ProviderStatus),
     /** Every provider after the refresh; set when the command asked for `waitForModels`. */

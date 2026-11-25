@@ -27,6 +27,7 @@ const vps1: Machine = {
   lastError: null,
   lastSeenAt: "2026-11-25T08:00:00.000Z",
   sessions: 0,
+  resources: null,
   providers: [
     { id: "claude-code", name: "Claude Code", ready: true, reason: null },
     { id: "codex", name: "Codex", ready: false, reason: "Not signed in: run `codex login` there" },
@@ -82,7 +83,11 @@ export function mockMachinesApi(world: MockWorld): MachinesMethods {
     ]);
 
   return {
-    machines: () => later({ machines, command: COMMAND }, 120),
+    machines: () =>
+      later(
+        { machines, command: COMMAND, homeWeight: DEFAULT_MACHINE_WEIGHT, homeResources: null },
+        120,
+      ),
 
     async addMachine(input) {
       const req = AddMachineRequest.parse(input);
@@ -144,4 +149,20 @@ export function mockMachinesApi(world: MockWorld): MachinesMethods {
       syncRunners();
     },
   };
+}
+
+/**
+ * Automatic placement in the mock: a person's start placed `auto` (by the request, or by a
+ * project set to Automatic) whose text mentions "busy" finds every machine busy and is refused
+ * as the server refuses it (409 `no_machine`). Anything else starts.
+ */
+export function mockAutoPlacement(
+  input: { machine?: string; input?: { text?: string } },
+  project: { execution?: { backend: string; machine?: string | null } } | undefined,
+): void {
+  const projectAuto = project?.execution?.backend === "ssh" && project.execution.machine === "auto";
+  const auto = input.machine === "auto" || (input.machine === undefined && projectAuto);
+  if (auto && /\bbusy\b/i.test(input.input?.text ?? "")) {
+    throw new ApiRequestError(409, "no_machine", "All machines are busy. Run it on Home instead?");
+  }
 }

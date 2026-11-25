@@ -90,6 +90,7 @@ export function sessionToRow(s: Session): Omit<SessionRow, "usage" | "startMeta"
     forkedFrom: s.forkedFrom ?? null,
     startError: s.startError ?? null,
     mcpServers: s.mcpServers ?? null,
+    placementNote: s.placementNote ?? null,
   };
 }
 

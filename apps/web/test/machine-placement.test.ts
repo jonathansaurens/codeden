@@ -7,6 +7,7 @@ import {
   emptyChoice,
   machineChoices,
   resolveDraftChoice,
+  startOnHome,
 } from "@/lib/new-session";
 
 const defaults = (machines: string[]): DraftDefaults => ({
@@ -29,12 +30,20 @@ describe("Runs on (the New session draft's machine)", () => {
     expect(request(null, ["vps-1"])).not.toHaveProperty("machine");
     expect(request(undefined, ["vps-1"])).not.toHaveProperty("machine");
     expect(request("home", ["vps-1"]).machine).toBe("home");
+    expect(request("auto", ["vps-1"]).machine).toBe("auto");
     expect(request("vps-1", ["vps-1", "box"]).machine).toBe("vps-1");
   });
 
   it("falls back to the project setting for a removed machine or a draft that can't choose", () => {
     expect(request("gone", ["vps-1"])).not.toHaveProperty("machine");
     expect(request("home", [])).not.toHaveProperty("machine");
+  });
+
+  it("sends the draft that found no machine again on Home, as it was otherwise", () => {
+    const auto = request("auto", ["vps-1"]);
+    expect(startOnHome(auto)).toEqual({ ...auto, machine: "home" });
+    const fromProject = request(null, ["vps-1"]);
+    expect(startOnHome(fromProject)).toEqual({ ...fromProject, machine: "home" });
   });
 
   it("offers machines only to GitHub projects that don't run in Docker", () => {
@@ -62,6 +71,7 @@ describe("withLiveState", () => {
     lastError: null,
     lastSeenAt: "2026-11-25T08:00:00.000Z",
     sessions: 2,
+    resources: null,
     providers: [],
   };
   const runner = (over: Partial<RunnerRecord>): RunnerRecord => ({

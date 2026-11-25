@@ -82,9 +82,9 @@ Each failure says what to fix, for example "Node.js 24 or newer is needed on vps
 ## Choosing where sessions run
 
 - **Per project:** Project page › Settings › Where sessions run: **This machine** (Home, the
-  default) or **A machine**, by name.
+  default), **A machine** by name, or **Automatic**.
 - **Per session:** the New session form's **Runs on** picker overrides the project's setting.
-- **The PM** can name a machine in `start_session` (`machine: "vps-1"` or `"home"`).
+- **The PM** can choose in `start_session` (`machine: "vps-1"`, `"home"` or `"auto"`).
 
 The orchestrator and PMs always stay on Home. A fork stays on its source session's machine.
 
@@ -93,6 +93,45 @@ from GitHub before every new session, and gives each session a worktree of it
 (`~/.codeden-runner/wt/<project>/<session>`), as Home does. Archiving a session removes its
 worktree; its branch stays in the machine's clone. Files, diffs, checkpoints, terminals and the
 browser screencast work as on Home; the desktop app's native browser view is Home only.
+
+## Automatic
+
+With Automatic, each new session goes to Home or the machine with the most free capacity at that
+moment. CodeDen asks every candidate for its capacity (cores, how busy the CPU was over the last
+second, total and available memory; each gets 5 seconds to answer, and an answer is reused for
+15 seconds) and scores it:
+
+```
+score = preference × cores × (1 − CPU busy) × (available memory ÷ total memory)
+```
+
+The highest score wins; on a tie Home wins, then the higher preference, then the name that sorts
+first. A candidate is skipped when it isn't connected, is set to Manual only, the project isn't on
+GitHub (machines only), the session's provider isn't installed and signed in there, its CPU is 95%
+busy or more, its free memory is 5% or less, or it didn't answer.
+
+On macOS, available memory counts what the system can reclaim (free, inactive, purgeable and
+speculative pages), not only free pages. On Linux, a container's cgroup v2 limits count when set:
+cores from `cpu.max`, CPU use from `cpu.stat`, and memory from `memory.max` and `memory.current`
+less the reclaimable page cache. Without limits, the host's numbers count.
+
+### Preferences
+
+Each machine, and Home, has a preference (Settings › Machines):
+
+| Preference | Weight | Meaning |
+|---|---|---|
+| Prefer | 100 | Chosen first when it has room |
+| Normal | 50 | The default |
+| Less often | 25 | Chosen when the others are busier |
+| Manual only | 0 | Never chosen automatically; only by name |
+
+### When no machine qualifies
+
+- **You started the session:** New session says why ("No machine has codex installed and signed
+  in", "All machines are busy") and offers **Run on Home**.
+- **The PM or an automation started it:** it runs on Home, and its header says so ("Automatic
+  placement found no free machine; ran on Home").
 
 ## Removing a machine
 
@@ -132,4 +171,7 @@ the machine's build must report the same version as the server.
   then `/login`), and check Settings › Machines, which lists each provider's state.
 - **The machine shows disconnected**: CodeDen retries on its own. Check that the machine is up
   and that `ssh <machine>` works; the error under the machine says what the last attempt got.
+- **Automatic never picks a machine**: open Settings › Machines and check its preference (not
+  Manual only), its providers, and its live capacity. A machine that is busier than Home, or
+  answers slowly, loses to it.
 - **The runner's log** is `~/.codeden-runner/logs/runner.log` on the machine.

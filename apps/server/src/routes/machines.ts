@@ -23,24 +23,37 @@ function machinesOf(s: AppServices) {
  * placed there or a clone holds unpushed work, unless `force=true`).
  */
 export function machineRoutes(s: AppServices) {
-  return new Hono()
-    .get("/", async (c) => {
-      const machines = machinesOf(s);
-      return c.json<MachinesResponse>({
-        machines: await machines.list(),
-        command: machines.command,
-      });
-    })
-    .post("/", jsonBody(AddMachineRequest), async (c) =>
-      c.json<AddMachineResponse>({ machine: await machinesOf(s).add(c.req.valid("json")) }, 201),
-    )
-    .patch("/:id", jsonBody(z.object({ weight: MachineWeight })), (c) =>
-      c.json(machinesOf(s).setWeight(c.req.param("id"), c.req.valid("json").weight)),
-    )
-    .delete("/:id", queryOf(z.object({ force: z.enum(["true"]).optional() })), async (c) => {
-      await machinesOf(s).remove(c.req.param("id"), {
-        force: c.req.valid("query").force === "true",
-      });
-      return c.json({ removed: true });
-    });
+  return (
+    new Hono()
+      .get("/", async (c) => {
+        const machines = machinesOf(s);
+        const [list, homeResources] = await Promise.all([
+          machines.list(),
+          machines.homeResources(),
+        ]);
+        return c.json<MachinesResponse>({
+          machines: list,
+          homeWeight: machines.homeWeight(),
+          homeResources,
+          command: machines.command,
+        });
+      })
+      .post("/", jsonBody(AddMachineRequest), async (c) =>
+        c.json<AddMachineResponse>({ machine: await machinesOf(s).add(c.req.valid("json")) }, 201),
+      )
+      // Home's own preference: it is a candidate for automatic placement like any machine.
+      .put("/home/weight", jsonBody(z.object({ weight: MachineWeight })), (c) => {
+        machinesOf(s).setHomeWeight(c.req.valid("json").weight);
+        return c.json({ weight: c.req.valid("json").weight });
+      })
+      .patch("/:id", jsonBody(z.object({ weight: MachineWeight })), (c) =>
+        c.json(machinesOf(s).setWeight(c.req.param("id"), c.req.valid("json").weight)),
+      )
+      .delete("/:id", queryOf(z.object({ force: z.enum(["true"]).optional() })), async (c) => {
+        await machinesOf(s).remove(c.req.param("id"), {
+          force: c.req.valid("query").force === "true",
+        });
+        return c.json({ removed: true });
+      })
+  );
 }

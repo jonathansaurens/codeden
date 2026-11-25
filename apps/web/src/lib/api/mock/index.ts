@@ -19,7 +19,7 @@ import { makeSession } from "./fixtures/helpers";
 import { setupChecks } from "./fixtures/ops";
 import { mockInboxBulkApi } from "./inbox-bulk";
 import { type Script, scriptedTurn, uid } from "./live";
-import { mockMachinesApi } from "./machines";
+import { mockAutoPlacement, mockMachinesApi } from "./machines";
 import { mockOrchestration } from "./orchestration";
 import { mockProjectApi } from "./projects";
 import { MockQueue } from "./queue";
@@ -199,6 +199,10 @@ export function createMockClient(opts: MockClientOptions = {}): CodeDenClient {
       const prompt = input.input?.text ?? "";
       const projectId = input.projectId ?? "";
       const workKey = input.workKey ?? `request:${uid("w")}`;
+      mockAutoPlacement(
+        input,
+        world.snapshot.projects.find((p) => p.id === projectId),
+      );
       const clash = world.snapshot.sessions.find(
         (s) =>
           s.projectId === projectId &&

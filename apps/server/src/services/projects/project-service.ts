@@ -150,7 +150,8 @@ export class ProjectService {
         );
       }
       const { backend, machine } = patch.execution;
-      if (backend === "ssh" && current.kind !== "github") {
+      // Automatic suits any project: one that isn't on GitHub always lands on Home.
+      if (backend === "ssh" && machine !== "auto" && current.kind !== "github") {
         throw badRequest(
           "Machines need a GitHub project: each machine clones the repository from GitHub",
           "machine_unavailable",

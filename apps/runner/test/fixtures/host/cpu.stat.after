@@ -1,0 +1,4 @@
+usage_usec 6000000
+user_usec 4800000
+system_usec 1200000
+nr_periods 20

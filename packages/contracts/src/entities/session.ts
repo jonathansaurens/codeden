@@ -147,6 +147,12 @@ export const Session = z.object({
   resumeToken: z.string().nullable(),
   /** Runner currently hosting the session. */
   runnerId: z.string().nullable(),
+  /**
+   * Why the session runs where it does when that isn't what was asked for, shown in its header:
+   * "Automatic placement found no free machine (All machines are busy); ran on Home"
+   * (`docs/machines-teams-and-agents.md` §A.5). Absent or null otherwise.
+   */
+  placementNote: z.string().nullable().optional(),
   automationRunId: Id.nullable(),
   /** The session's root thread, once the provider started it. */
   rootThreadId: Id.nullable(),

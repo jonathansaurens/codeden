@@ -1,4 +1,5 @@
 import type { Project, RunnerRecord, StartSessionRequest } from "@codeden/contracts";
+import type { AutoPlacement } from "../../execution/placement/auto";
 import type { MachineService } from "../../execution/ssh/machines";
 import { badRequest, ServiceError } from "../errors";
 import type { RunnerPort } from "../runner-port";
@@ -27,7 +28,7 @@ export function machineFor(
   machines: MachinePlacer | undefined,
   req: Pick<StartSessionRequest, "role" | "machine">,
   project: Project | null,
-): MachinePlacement | null {
+): MachinePlacement | "auto" | null {
   if (req.role !== "agent" || !project) return null;
   if (req.machine && project.execution?.backend === "docker") {
     throw badRequest(
@@ -39,6 +40,7 @@ export function machineFor(
     req.machine ??
     (project.execution?.backend === "ssh" ? (project.execution?.machine ?? null) : null);
   if (!label || label === "home") return null;
+  if (label === "auto") return "auto";
   const record = machines?.find(label);
   if (!record) {
     const where = req.machine ? "" : " (the project's setting); choose another in its settings";
@@ -78,4 +80,36 @@ export async function assertProviderOnMachine(
       "provider_unavailable",
     );
   }
+}
+
+/** Where Automatic put a new session: the runner's journal id (null: Home) and any note. */
+export interface AutoPlaced {
+  runnerId: string | null;
+  note: string | null;
+}
+
+/**
+ * Automatic placement for a new session (§A.5): the highest-scoring of Home and the machines.
+ * When none qualifies, a session a person starts is refused with why, so the form can offer
+ * Home (`no_machine`); one the PM, an automation or the factory starts runs on Home, with a note
+ * in its header saying so.
+ */
+export async function placeAutomatically(
+  auto: Pick<AutoPlacement, "choose"> | undefined,
+  project: Project,
+  provider: string,
+  startedBy: StartSessionRequest["startedBy"],
+): Promise<AutoPlaced> {
+  const choice = auto
+    ? await auto.choose(project, provider)
+    : { kind: "none" as const, reason: "No machine can take sessions automatically" };
+  if (choice.kind === "home") return { runnerId: null, note: null };
+  if (choice.kind === "machine") return { runnerId: choice.record.runnerId, note: null };
+  if (startedBy.kind === "user") {
+    throw new ServiceError(409, "no_machine", `${choice.reason}. Run it on Home instead?`);
+  }
+  return {
+    runnerId: null,
+    note: `Automatic placement found no free machine (${choice.reason}); ran on Home`,
+  };
 }

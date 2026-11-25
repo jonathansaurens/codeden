@@ -1,9 +1,10 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { messageFrom, type Session } from "@codeden/contracts";
+import { DEFAULT_MACHINE_WEIGHT, messageFrom, type Session } from "@codeden/contracts";
 import { createImageEngineRegistry, type ImageEngineRegistry } from "@codeden/providers";
 import type { Db } from "../db/client";
 import type { EventStore } from "../events/store";
+import { AutoPlacement } from "../execution/placement/auto";
 import { noSandboxes, type SandboxService } from "../execution/sandboxes";
 import type { MachineService } from "../execution/ssh/machines";
 import { ToolRegistry } from "../mcp/registry";
@@ -294,6 +295,17 @@ export function createServices(opts: ServicesOptions): AppServices {
     utility,
     sandboxes,
     machines: opts.machines,
+    autoPlacement:
+      opts.machines &&
+      new AutoPlacement({
+        machines: opts.machines,
+        home: opts.runner,
+        homeWeight: () => opts.machines?.homeWeight() ?? DEFAULT_MACHINE_WEIGHT,
+        // Read when a start is placed: the factory is made further down.
+        homeReady: (provider) => factory.providerRunnable(provider).runnable,
+        capacity: opts.machines.capacity,
+        log: opts.log,
+      }),
     projectChecks: redetector,
   });
   const checksLoop = new ChecksLoop({

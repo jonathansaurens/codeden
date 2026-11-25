@@ -36,7 +36,8 @@ export interface DraftChoice {
   /** Automatic rounds for `untilChecksPass`; absent: the default. */
   checkRounds?: number;
   /**
-   * Where the session runs instead of the project's setting: `home` or a machine's label.
+   * Where the session runs instead of the project's setting: `home`, `auto` (Automatic) or a
+   * machine's label.
    * Absent or null: the project setting (nothing is sent).
    */
   machine?: string | null;
@@ -99,7 +100,10 @@ export interface ResolvedDraft {
    * isn't a git repository (no worktree can be made there).
    */
   workspace: "worktree" | "repo_root";
-  /** `StartSessionRequest.machine`: `home` or a machine's label; null leaves it to the project. */
+  /**
+   * `StartSessionRequest.machine`: `home`, `auto` or a machine's label; null leaves it to the
+   * project.
+   */
   machine: string | null;
 }
 
@@ -177,7 +181,7 @@ export function canPlaceOnMachines(project: PlaceableProject | undefined): boole
 }
 
 /**
- * The placement the draft sends: `home`, or a machine still offered. A machine that was removed,
+ * The placement the draft sends: `home`, `auto`, or a machine still offered. A machine that was removed,
  * or a draft that can't choose, falls back to the project setting (null).
  */
 export function draftMachine(
@@ -185,7 +189,15 @@ export function draftMachine(
   offered: readonly string[],
 ): string | null {
   if (!picked || offered.length === 0) return null;
-  return picked === "home" || offered.includes(picked) ? picked : null;
+  return picked === "home" || picked === "auto" || offered.includes(picked) ? picked : null;
+}
+
+/**
+ * The same start on Home, after automatic placement found no free machine (`no_machine`): the
+ * request as it was, with `machine: "home"`.
+ */
+export function startOnHome(request: StartSessionRequestInit): StartSessionRequestInit {
+  return { ...request, machine: "home" };
 }
 
 /**

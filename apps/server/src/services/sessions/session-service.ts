@@ -24,6 +24,7 @@ import type {
   UserInput,
   WorkspaceRequest,
 } from "@codeden/contracts";
+import type { AutoPlacement } from "../../execution/placement/auto";
 import type { SandboxService } from "../../execution/sandboxes";
 import type { McpTokenStore } from "../../mcp/tokens";
 import type { SettingsStore } from "../../settings-store";
@@ -53,7 +54,12 @@ import type { LaunchFork, SessionLauncher } from "./launcher";
 import type { Outbox } from "./outbox";
 import { isTransientRunnerError, isTurnRunningError, OutboxHolds } from "./outbox-holds";
 import { planModeUnsupported, readOnlyUnsupported } from "./permissions";
-import { assertProviderOnMachine, type MachinePlacer, machineFor } from "./placement";
+import {
+  assertProviderOnMachine,
+  type MachinePlacer,
+  machineFor,
+  placeAutomatically,
+} from "./placement";
 import { autoOrder } from "./provider-order";
 import type { Answerer, QuestionBroker } from "./questions";
 import { applyPendingConfig, updateSession } from "./reconfigure";
@@ -80,6 +86,8 @@ export interface SessionServiceDeps extends RunnerDeps {
   sandboxes?: Pick<SandboxService, "assertStartable" | "wants">;
   /** Machines a session can be placed on by name (`docs/machines-teams-and-agents.md` §A.5). */
   machines?: MachinePlacer;
+  /** Automatic placement on Home or a machine (§A.5). */
+  autoPlacement?: Pick<AutoPlacement, "choose">;
   /**
    * Brings a project's record up to date with its folder (`isGitRepo`) when the start-up check
    * hasn't reached it yet (#425). Without it, starts trust the record as it is.
@@ -248,7 +256,8 @@ export class SessionService {
     }
 
     const queued = queuedBehind.length > 0;
-    const machine = machineFor(this.deps.machines, req, project);
+    const target = machineFor(this.deps.machines, req, project);
+    const machine = target === "auto" ? null : target;
     const session = this.buildSession(
       req,
       project,
@@ -259,6 +268,16 @@ export class SessionService {
       await assertProviderOnMachine(this.deps.machines, machine, session.provider);
       // Routed to the machine before the workspace is made: it clones there (§A.4).
       session.runnerId = machine.record.runnerId;
+    }
+    if (target === "auto" && project) {
+      const placed = await placeAutomatically(
+        this.deps.autoPlacement,
+        project,
+        session.provider,
+        req.startedBy,
+      );
+      session.runnerId = placed.runnerId;
+      if (placed.note) session.placementNote = placed.note;
     }
     const meta: StoredStartMeta = {
       workspaceMode: workspace.mode,

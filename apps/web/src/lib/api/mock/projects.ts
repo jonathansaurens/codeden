@@ -119,7 +119,8 @@ export function mockProjectApi(world: MockWorld): MockProjectApi {
         throw new ApiRequestError(400, "backend_unavailable", NOT_GITHUB);
       }
       if (patch.execution?.backend === "ssh") {
-        if (find(id).kind !== "github") {
+        // Automatic suits any project: one that isn't on GitHub always lands on Home.
+        if (patch.execution.machine !== "auto" && find(id).kind !== "github") {
           throw new ApiRequestError(
             400,
             "machine_unavailable",

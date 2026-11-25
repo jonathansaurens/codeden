@@ -7,6 +7,7 @@ import { DraftOptions } from "@/components/composer/draft-options";
 import { useProjectProviders } from "@/components/composer/model-picker/use-project-models";
 import { ConflictCard } from "@/components/project/conflict-card";
 import { NewSessionHeader } from "@/components/project/new-session-header";
+import { NoMachineNotice } from "@/components/project/no-machine-notice";
 import { useStartDraft } from "@/components/project/use-start-draft";
 import { useMachines } from "@/lib/machines";
 import { canPlaceOnMachines, machineChoices, resolveDraftChoice } from "@/lib/new-session";
@@ -81,6 +82,15 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
           Nothing is created until you send.
         </EmptyState>
       </div>
+      {start.noMachine && (
+        <div className="mx-auto w-full max-w-[46rem] px-3 pb-2 sm:px-6">
+          <NoMachineNotice
+            message={start.noMachine}
+            sending={start.sending}
+            onRunOnHome={start.runOnHome}
+          />
+        </div>
+      )}
       {start.conflict && (
         <div className="mx-auto w-full max-w-[46rem] px-3 pb-2 sm:px-6">
           <ConflictCard
@@ -108,7 +118,9 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
             machines={machines}
             projectSetting={
               project.execution?.backend === "ssh"
-                ? `On ${project.execution.machine ?? "a machine"}`
+                ? project.execution.machine === "auto"
+                  ? "Automatic"
+                  : `On ${project.execution.machine ?? "a machine"}`
                 : "This computer, in a worktree"
             }
             onChange={(choice) => setChoice(projectId, choice)}

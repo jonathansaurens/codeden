@@ -122,6 +122,8 @@ export const sessions = sqliteTable(
     pr: json<GitHubPrRef>("pr"),
     resumeToken: text("resume_token"),
     runnerId: text("runner_id"),
+    /** Why the session runs where it does, when not where asked (`Session.placementNote`). */
+    placementNote: text("placement_note"),
     automationRunId: text("automation_run_id"),
     rootThreadId: text("root_thread_id"),
     createdAt: text("created_at").notNull(),

@@ -1,5 +1,5 @@
 import type {
-  MachineLabel,
+  MachineTarget,
   Project,
   ProjectExecution,
   ProjectExecutionBackend,
@@ -108,12 +108,12 @@ export function useProjectActions() {
       },
       /**
        * Where the project's new agent sessions run (`Project.execution`): this machine, Docker, or
-       * a machine over SSH (backend `ssh` with the machine's label). Refused with a toast.
+       * a machine over SSH (backend `ssh` with the machine's label, or `auto` for Automatic). Refused with a toast.
        */
       setExecutionBackend: async (
         project: Project,
         backend: ProjectExecutionBackend,
-        machine?: MachineLabel,
+        machine?: MachineTarget,
       ) => {
         const next: ProjectExecution = backend === "ssh" ? { backend, machine } : { backend };
         const set = (value: ProjectExecution) =>

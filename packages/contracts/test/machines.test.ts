@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AddMachineRequest,
   EventEnvelope,
+  HostResources,
   MACHINE_PREFERENCES,
   Machine,
   MachineLabel,
@@ -11,12 +12,13 @@ import {
   RunnerCommand,
   RunnerCommandResults,
   RunnerRecord,
+  Session,
   SessionPlacement,
   SshDestination,
   StartSessionRequest,
   UpdateProjectRequest,
 } from "../src";
-import { sampleProject, ts } from "./fixtures";
+import { sampleProject, sampleSession, ts } from "./fixtures";
 
 function roundTrip<T>(schema: { parse: (v: unknown) => T }, value: unknown): T {
   const first = schema.parse(value);
@@ -56,6 +58,15 @@ const machine: Machine = {
   lastSeenAt: ts,
   sessions: 2,
   providers: [{ id: "claude", name: "Claude Code", ready: false, reason: "not signed in" }],
+  resources: null,
+};
+
+const resources = {
+  cpuCount: 2,
+  cpuBusy: 0.25,
+  totalMemoryBytes: 4 * 1024 ** 3,
+  availableMemoryBytes: 2 * 1024 ** 3,
+  sampledAt: ts,
 };
 
 describe("machines", () => {
@@ -80,7 +91,16 @@ describe("machines", () => {
 
   it("round-trips the API shapes", () => {
     roundTrip(Machine, machine);
-    roundTrip(MachinesResponse, { machines: [machine], command: "npx -y codeden@0.7.10" });
+    roundTrip(MachinesResponse, {
+      machines: [{ ...machine, resources }],
+      homeWeight: 100,
+      homeResources: resources,
+      command: "npx -y codeden@0.7.10",
+    });
+    expect(MachinesResponse.parse({ machines: [], command: "x" })).toMatchObject({
+      homeWeight: 50,
+      homeResources: null,
+    });
     roundTrip(AddMachineRequest, { destination: "dev@vps-1", name: "vps-1" });
   });
 
@@ -105,6 +125,7 @@ describe("machines", () => {
     expect(MachineLabel.safeParse("auto").success).toBe(false);
     expect(MachineLabel.safeParse("a/b").success).toBe(false);
     expect(SessionPlacement.parse("home")).toBe("home");
+    expect(SessionPlacement.parse("auto")).toBe("auto");
     expect(SessionPlacement.parse("vps-1")).toBe("vps-1");
   });
 
@@ -151,5 +172,26 @@ describe("per-project clones on a machine (A2)", () => {
   it("needs the project's slug to name the clone", () => {
     const { projectSlug: _s, ...noSlug } = prepare;
     expect(RunnerCommand.safeParse(noSlug).success).toBe(false);
+  });
+});
+
+describe("automatic placement (A3)", () => {
+  it("round-trips host.resources and refuses a busy share above 1", () => {
+    roundTrip(RunnerCommand, { name: "host.resources" });
+    roundTrip(RunnerCommandResults["host.resources"], resources);
+    expect(
+      RunnerCommandResults["host.resources"].safeParse({ ...resources, cpuBusy: 1.2 }).success,
+    ).toBe(false);
+    expect(HostResources.safeParse({ ...resources, cpuCount: 1.5 }).success).toBe(true);
+  });
+
+  it("sets Automatic on a project, and notes a fallback on the session", () => {
+    expect(
+      roundTrip(Project, { ...sampleProject, execution: { backend: "ssh", machine: "auto" } })
+        .execution,
+    ).toEqual({ backend: "ssh", machine: "auto" });
+    const note = "Automatic placement found no free machine (All machines are busy); ran on Home";
+    expect(roundTrip(Session, { ...sampleSession, placementNote: note }).placementNote).toBe(note);
+    expect(Session.parse(sampleSession).placementNote).toBeUndefined();
   });
 });

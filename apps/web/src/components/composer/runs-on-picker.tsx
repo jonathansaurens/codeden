@@ -12,7 +12,7 @@ import { TRIGGER_CLASS } from "./model-picker/trigger";
 
 /**
  * "Runs on" for a New session draft in a GitHub project once machines exist: the project's
- * setting (the default, sends nothing), Home (this computer) or a machine by name, for this one
+ * setting (the default, sends nothing), Automatic, Home (this computer) or a machine by name, for this one
  * session (`StartSessionRequest.machine`).
  */
 export function RunsOnPicker({
@@ -30,10 +30,15 @@ export function RunsOnPicker({
 }) {
   const options: { value: string | null; label: string; help?: string }[] = [
     { value: null, label: "Project setting", help: projectSetting },
+    {
+      value: "auto",
+      label: "Automatic",
+      help: "Home or the machine with the most free capacity",
+    },
     { value: "home", label: "Home", help: "This computer, in a worktree" },
     ...machines.map((label) => ({ value: label, label })),
   ];
-  const shown = value === null ? "Project setting" : value === "home" ? "Home" : value;
+  const shown = options.find((o) => o.value === value)?.label ?? value ?? "Project setting";
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -46,7 +51,7 @@ export function RunsOnPicker({
         <DropdownMenuLabel className="text-2xs">Where the new session runs</DropdownMenuLabel>
         {options.map((o, i) => (
           <div key={o.value ?? "project"}>
-            {i === 2 && <DropdownMenuSeparator />}
+            {i === 3 && <DropdownMenuSeparator />}
             <DropdownMenuItem onSelect={() => onChange(o.value)} className="items-start py-1.5">
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px]">{o.label}</span>

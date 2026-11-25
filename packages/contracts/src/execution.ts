@@ -20,8 +20,11 @@ import { MachineLabel } from "./machines";
 export const ProjectExecutionBackend = z.enum(["local", "docker", "ssh"]);
 export type ProjectExecutionBackend = z.infer<typeof ProjectExecutionBackend>;
 
-/** Which machine an `ssh` project's sessions run on: a machine's label. */
-export const MachineTarget = MachineLabel;
+/**
+ * Which machine an `ssh` project's sessions run on: a machine's label, or `auto` (automatic
+ * placement on Home or the machine with the most free capacity, §A.5).
+ */
+export const MachineTarget = z.union([z.literal("auto"), MachineLabel]);
 export type MachineTarget = z.infer<typeof MachineTarget>;
 
 /** A project's execution settings. Defaults to `local`, so projects from before it still parse. */

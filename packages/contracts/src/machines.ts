@@ -50,9 +50,9 @@ export type MachineLabel = z.infer<typeof MachineLabel>;
 
 /**
  * Where one session runs, overriding its project's setting (`StartSessionRequest.machine`):
- * `home` (this computer's runner) or a machine's label.
+ * `home` (this computer's runner), `auto` (automatic placement, §A.5) or a machine's label.
  */
-export const SessionPlacement = z.union([z.literal("home"), MachineLabel]);
+export const SessionPlacement = z.union([z.literal("home"), z.literal("auto"), MachineLabel]);
 export type SessionPlacement = z.infer<typeof SessionPlacement>;
 
 /**
@@ -72,6 +72,21 @@ export const MACHINE_PREFERENCES: ReadonlyArray<{ weight: MachineWeight; label: 
   { weight: 25, label: "Less often" },
   { weight: 0, label: "Manual only" },
 ];
+
+/**
+ * A machine's free capacity, for automatic placement (`host.resources`, §A.5). On Linux a
+ * container's cgroup v2 limits count when set, so `cpuCount` may be fractional.
+ */
+export const HostResources = z.object({
+  cpuCount: z.number().positive(),
+  /** Share of CPU time busy over about a second, 0 to 1. */
+  cpuBusy: z.number().min(0).max(1),
+  totalMemoryBytes: z.number().nonnegative(),
+  /** Free memory, counting what the OS can reclaim (macOS: `vm_stat`; Linux cgroups: cache). */
+  availableMemoryBytes: z.number().nonnegative(),
+  sampledAt: Timestamp,
+});
+export type HostResources = z.infer<typeof HostResources>;
 
 /**
  * Why adding a machine failed (`AddMachineResponse` errors, `code` of the API error):
@@ -136,12 +151,18 @@ export const Machine = z.object({
   /** Sessions placed on it that aren't archived. */
   sessions: z.int().nonnegative(),
   providers: z.array(MachineProvider),
+  /** Its last capacity answer (§A.5); null before one, or while it can't be reached. */
+  resources: HostResources.nullable().default(null),
 });
 export type Machine = z.infer<typeof Machine>;
 
 /** `GET /api/machines`: every machine, and the command they run CodeDen with. */
 export const MachinesResponse = z.object({
   machines: z.array(Machine),
+  /** Home's own preference for automatic placement; Home is a candidate like any machine. */
+  homeWeight: MachineWeight.default(DEFAULT_MACHINE_WEIGHT),
+  /** Home's last capacity answer. */
+  homeResources: HostResources.nullable().default(null),
   /**
    * The command prefix every machine runs CodeDen with: `npx -y codeden@<server version>`, or
    * the owner's development override (`CODEDEN_MACHINE_COMMAND`).

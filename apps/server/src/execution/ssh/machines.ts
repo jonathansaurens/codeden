@@ -4,6 +4,8 @@ import {
   CODEDEN_VERSION,
   DEFAULT_MACHINE_WEIGHT,
   describeUnpushedWork,
+  HOME_RUNNER_ID,
+  type HostResources,
   hasUnpushedWork,
   MACHINE_RUNNER_HOME,
   type Machine,
@@ -22,6 +24,7 @@ import { errorMessage, ServiceError } from "../../services/errors";
 import { type Exec, resolveExecutable, runTool } from "../../services/exec";
 import type { RunnerPort } from "../../services/runner-port";
 import { runnerErrorCode } from "../../services/runner-port";
+import { CapacityCache } from "../placement/capacity";
 import {
   checkCodeden,
   checkNode,
@@ -37,7 +40,7 @@ import { providerReadiness } from "./readiness";
 /** What machines need of the runner hub. */
 export type MachineHub = Pick<
   RunnerHub,
-  "add" | "remove" | "client" | "forRunnerId" | "list" | "setWeight"
+  "add" | "remove" | "client" | "forRunnerId" | "list" | "setWeight" | "home"
 >;
 
 export interface MachineServiceDeps {
@@ -92,6 +95,8 @@ export class MachineService {
   private readonly exec: Exec;
   private readonly version: string;
   private readonly statuses = new Map<string, { at: number; list: ProviderStatus[] }>();
+  /** Capacity answers of Home and every machine (§A.5), shared with automatic placement. */
+  readonly capacity = new CapacityCache();
 
   constructor(private readonly deps: MachineServiceDeps) {
     this.exec = deps.exec ?? runTool;
@@ -118,11 +123,30 @@ export class MachineService {
     return this.records().find((r) => r.id === idOrLabel || r.label?.toLowerCase() === key);
   }
 
-  /** Every machine with what its runner last reported. */
+  /** Every machine with what its runner last reported, its capacity asked again when stale. */
   async list(): Promise<Machine[]> {
     const records = this.records();
-    await Promise.all(records.map((r) => this.refreshProviders(r)));
+    await Promise.all(
+      records.flatMap((r) => [this.refreshProviders(r), this.capacity.get(r.id, this.port(r))]),
+    );
     return records.map((r) => this.view(r));
+  }
+
+  /** Home's preference for automatic placement (its record's weight). */
+  homeWeight(): MachineWeight {
+    const home = this.deps.hub.list().find((r) => r.home);
+    const weight = MachineWeight.safeParse(home?.weight);
+    return weight.success ? weight.data : DEFAULT_MACHINE_WEIGHT;
+  }
+
+  /** Change Home's preference. */
+  setHomeWeight(weight: MachineWeight): void {
+    this.deps.hub.setWeight(HOME_RUNNER_ID, weight);
+  }
+
+  /** Home's capacity, asked again when stale. */
+  homeResources(): Promise<HostResources | null> {
+    return this.capacity.get(HOME_RUNNER_ID, this.deps.hub.home());
   }
 
   /** One machine as the API shows it. */
@@ -148,6 +172,7 @@ export class MachineService {
       lastSeenAt: record.lastSeenAt,
       sessions: this.sessionsOn(record).filter((s) => !s.archivedAt).length,
       providers,
+      resources: client?.status.state === "connected" ? this.capacity.last(record.id) : null,
     };
   }
 
@@ -322,6 +347,7 @@ export class MachineService {
     }
     await this.deps.hub.remove(record.id, { deleted: true });
     this.statuses.delete(record.id);
+    this.capacity.forget(record.id);
     this.deps.log?.(`machines: removed ${label}`);
   }
 

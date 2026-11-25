@@ -239,6 +239,22 @@ describe("a machine over ssh", () => {
     expect(existsSync(server.services.sessionRepo.get(second).cwd)).toBe(true);
   });
 
+  it("is chosen by Automatic from its live capacity", async () => {
+    const patched = await api("PATCH", `/projects/${projectId}`, {
+      execution: { backend: "ssh", machine: "auto" },
+    });
+    expect(patched.status).toBe(200);
+    // No home runner here, so the machine is the only candidate with capacity.
+    const id = await startSession("placed automatically");
+    expect(server.services.sessionRepo.get(id).runnerId).toBe(machineRecord()?.runnerId);
+    const listed = await api("GET", "/machines");
+    expect(listed.body.machines[0].resources).toMatchObject({
+      cpuCount: expect.any(Number),
+      cpuBusy: expect.any(Number),
+    });
+    await waitUntil(() => server.services.sessionRepo.get(id).status === "idle");
+  });
+
   it("is linked again after a server restart, even when its runner stopped meanwhile", async () => {
     const id = await startSession("before the restart");
     await waitUntil(() => server.services.sessionRepo.get(id).status === "idle");

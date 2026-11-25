@@ -13,15 +13,19 @@ import { useClient } from "@/lib/api";
 import { useMachines } from "@/lib/machines";
 import { useProjectActions } from "@/lib/project-actions";
 
-const NOT_GITHUB = "Machines need a GitHub project";
+const NOT_GITHUB = "Machines need a GitHub project; with Automatic its sessions run on Home";
 const NO_MACHINES = "Add a machine in Settings › Machines";
+
+/** The control's choices: the backends, with `ssh` split into Automatic and a named machine. */
+type Choice = ProjectExecutionBackend | "auto";
 
 /**
  * Project page > Settings: where the project's new agent sessions run (`Project.execution`,
  * `docs/remote-runners.md` §5). This machine (worktrees), experimentally a Docker container per
- * session, or one of the machines reached over SSH. Docker can't be picked while it isn't
- * available, and neither Docker nor a machine for a project that isn't on GitHub; machines need at
- * least one added in Settings. The reason is shown.
+ * session, one of the machines reached over SSH, or Automatic (`ssh` with machine `auto`: Home or
+ * the machine with the most free capacity). Docker can't be picked while it isn't available, and
+ * neither Docker nor a named machine for a project that isn't on GitHub; machines and Automatic
+ * need at least one machine added in Settings. The reason is shown.
  */
 export function ProjectExecution({ project }: { project: Project }) {
   const client = useClient();
@@ -36,8 +40,11 @@ export function ProjectExecution({ project }: { project: Project }) {
   const labels = machines.data?.machines.map((m) => m.label) ?? [];
   const docker = backends.data?.backends.find((b) => b.backend === "docker");
   // A project from an older server has no setting: it runs locally.
-  const current = project.execution?.backend ?? "local";
-  const currentMachine = project.execution?.machine ?? null;
+  const backend = project.execution?.backend ?? "local";
+  const automatic = backend === "ssh" && project.execution?.machine === "auto";
+  const current: Choice = automatic ? "auto" : backend;
+  const currentMachine =
+    backend === "ssh" && !automatic ? (project.execution?.machine ?? null) : null;
   const blocked = !docker?.available;
   const reason = docker
     ? [docker.reason, docker.fix].filter(Boolean).join(". ")
@@ -47,9 +54,10 @@ export function ProjectExecution({ project }: { project: Project }) {
   const machineBlocked =
     project.kind !== "github" ? NOT_GITHUB : labels.length === 0 ? NO_MACHINES : null;
 
-  const pick = (backend: ProjectExecutionBackend) => {
-    if (backend === current) return;
-    if (backend !== "ssh") return void setExecutionBackend(project, backend);
+  const pick = (choice: Choice) => {
+    if (choice === current) return;
+    if (choice === "auto") return void setExecutionBackend(project, "ssh", "auto");
+    if (choice !== "ssh") return void setExecutionBackend(project, choice);
     const label = labels[0];
     if (label) void setExecutionBackend(project, "ssh", label);
   };
@@ -72,6 +80,11 @@ export function ProjectExecution({ project }: { project: Project }) {
                 repository from GitHub. Archiving the session removes the container. For now only
                 providers that need no sign-in run there.
               </>
+            ) : current === "auto" ? (
+              <>
+                Each new agent session runs on Home or the machine with the most free capacity,
+                weighted by each machine's preference.
+              </>
             ) : current === "ssh" ? (
               <>
                 Each new agent session runs on{" "}
@@ -84,7 +97,7 @@ export function ProjectExecution({ project }: { project: Project }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented<ProjectExecutionBackend>
+          <Segmented<Choice>
             value={current}
             onChange={pick}
             options={[
@@ -94,6 +107,12 @@ export function ProjectExecution({ project }: { project: Project }) {
                 label: "Docker (experimental)",
                 disabled: blocked && current !== "docker",
                 title: blocked ? reason : undefined,
+              },
+              {
+                value: "auto",
+                label: "Automatic",
+                disabled: labels.length === 0 && current !== "auto",
+                title: labels.length === 0 ? NO_MACHINES : undefined,
               },
               {
                 value: "ssh",
