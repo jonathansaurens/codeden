@@ -52,10 +52,17 @@ export function mountRunnerConnect(app: Hono, deps: RunnerConnectDeps): void {
   const failures = new SignInLimiter();
   const refuse = (c: Context, status: 401 | 429 | 503, code: string, message: string) =>
     c.json({ error: { code, message } }, status);
-  const gate = (c: Context) => {
-    const { address } = clientAddress(c);
+  /**
+   * A bad code or key: counted against the address, and answered with 429 once the address has
+   * failed too often (so guessing slows down), else with the 401 `unauthorized` gives. The
+   * secret is always checked first: a valid one pairs or links whatever failed before.
+   */
+  const failed = (c: Context, why: string, unauthorized: () => Response) => {
+    const { address, viaProxy } = clientAddress(c);
     const check = failures.check(address);
-    if (check.allowed) return null;
+    failures.fail(address);
+    deps.network.recordFailedSignIn(address, why, viaProxy);
+    if (check.allowed) return unauthorized();
     c.header("Retry-After", String(Math.ceil(check.retryAfterMs / 1000)));
     return refuse(
       c,
@@ -64,17 +71,10 @@ export function mountRunnerConnect(app: Hono, deps: RunnerConnectDeps): void {
       "Too many bad pairing codes or keys. Wait and try again.",
     );
   };
-  const failed = (c: Context, why: string) => {
-    const { address, viaProxy } = clientAddress(c);
-    failures.fail(address);
-    deps.network.recordFailedSignIn(address, why, viaProxy);
-  };
 
   app.post(RUNNER_CONNECT_PAIR_PATH, async (c) => {
     const computers = deps.computers();
     if (!computers) return refuse(c, 503, "machines_unavailable", "Machines aren't available here");
-    const throttled = gate(c);
-    if (throttled) return throttled;
     const body = PairRequest.safeParse(await c.req.json().catch(() => undefined));
     if (!body.success) {
       return c.json({ error: { code: "bad_request", message: "Send a pairing code" } }, 400);
@@ -82,10 +82,9 @@ export function mountRunnerConnect(app: Hono, deps: RunnerConnectDeps): void {
     try {
       const paired = computers.pair(body.data);
       if ("refused" in paired) {
-        failed(c, "invalid pairing code");
-        return refuse(c, 401, paired.refused.code, paired.refused.message);
+        const { code, message } = paired.refused;
+        return failed(c, "invalid pairing code", () => refuse(c, 401, code, message));
       }
-      failures.succeed(clientAddress(c).address);
       return c.json<PairResponse>(paired, 201);
     } catch (error) {
       return errorResponse(error, c, deps.log);
@@ -95,19 +94,17 @@ export function mountRunnerConnect(app: Hono, deps: RunnerConnectDeps): void {
   app.get(RUNNER_CONNECT_PATH, async (c, next) => {
     const computers = deps.computers();
     if (!computers) return refuse(c, 503, "machines_unavailable", "Machines aren't available here");
-    const throttled = gate(c);
-    if (throttled) return throttled;
     const machineId = computers.authenticate(bearerOf(c));
     if (!machineId) {
-      failed(c, "invalid device key");
-      return refuse(
-        c,
-        401,
-        "unauthorized",
-        "This computer's key isn't valid any more (it was disconnected). Pair it again from Settings › Machines.",
+      return failed(c, "invalid device key", () =>
+        refuse(
+          c,
+          401,
+          "unauthorized",
+          "This computer's key isn't valid any more (it was disconnected). Pair it again from Settings › Machines.",
+        ),
       );
     }
-    failures.succeed(clientAddress(c).address);
     if (c.req.header("upgrade")?.toLowerCase() !== "websocket") {
       return c.json({ error: { code: "bad_request", message: "Expected a WebSocket" } }, 426);
     }

@@ -305,6 +305,23 @@ describe("a connected computer", () => {
     expect(RUNNER_CONNECT_PATH).toBe("/api/runner-connect");
   });
 
+  it("throttles only bad keys: a valid key links after failures from its address", async () => {
+    const pair = await connectComputer();
+    const plain = async (key: string) => {
+      const res = await fetch(`${server.url}${RUNNER_CONNECT_PATH}`, {
+        headers: { authorization: `Bearer ${key}` },
+      });
+      await res.text();
+      return res.status;
+    };
+    const bad: number[] = [];
+    for (let i = 0; i < 5; i++) bad.push(await plain("cdk_wrong"));
+    expect(bad.slice(0, 3)).toEqual([401, 401, 401]);
+    expect(bad.at(-1)).toBe(429);
+    // The key is checked first: past the WebSocket check (the request doesn't upgrade).
+    expect(await plain(pair.key)).toBe(426);
+  });
+
   it("takes work only from its person, and comes back as the same machine when paired again", async () => {
     const pair = await connectComputer();
     const bob = await operator("Bob");
