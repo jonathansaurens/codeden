@@ -17,6 +17,7 @@ import type { Tx } from "../events/projection-db";
 import type { EventStore } from "../events/store";
 import { hashPassword, verifyPassword } from "../network/password";
 import { badRequest, conflict, forbidden, notFound } from "../services/errors";
+import { nameKey, nameProblem, normalizeName } from "./names";
 import { rowToMember } from "./projection";
 import { newSecret, sha256 } from "./secrets";
 
@@ -105,14 +106,20 @@ export class MemberService {
 
   /** The person with this display name (any case), if any. */
   findPersonByName(name: string): Member | undefined {
-    const wanted = name.trim().toLowerCase();
-    return this.list().find((m) => m.kind === "person" && m.name.toLowerCase() === wanted);
+    const wanted = nameKey(name);
+    return this.list().find((m) => m.kind === "person" && nameKey(m.name) === wanted);
   }
 
-  /** Names are unique across members (any case), so sign-in by name is never ambiguous. */
+  /**
+   * Names are unique across members, compared as they look (`nameKey`: any case, compatibility
+   * forms and look-alike letters folded), so sign-in by name is never ambiguous and nobody can
+   * pass for someone else. A name with invisible characters or mixed scripts is refused.
+   */
   assertNameFree(name: string, except?: string): void {
-    const wanted = name.trim().toLowerCase();
-    if (this.list().some((m) => m.id !== except && m.name.toLowerCase() === wanted)) {
+    const problem = nameProblem(name);
+    if (problem) throw badRequest(problem, "name_invalid");
+    const wanted = nameKey(name);
+    if (this.list().some((m) => m.id !== except && nameKey(m.name) === wanted)) {
       throw conflict("Another member already has that name.", "name_taken");
     }
   }
@@ -131,7 +138,7 @@ export class MemberService {
     const member: Member = {
       id: randomUUID(),
       kind: "person",
-      name: input.name.trim(),
+      name: normalizeName(input.name),
       role: input.role,
       projectRoles: input.projectRoles,
       disabled: false,
@@ -164,7 +171,7 @@ export class MemberService {
     const member: Member = {
       id: randomUUID(),
       kind: "agent",
-      name: req.name.trim(),
+      name: normalizeName(req.name),
       role: req.role,
       projectRoles: req.projectRoles,
       disabled: false,
@@ -291,7 +298,7 @@ export class MemberService {
     }
     const next: Member = {
       ...member,
-      ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
+      ...(patch.name !== undefined ? { name: normalizeName(patch.name) } : {}),
       ...(patch.role !== undefined ? { role: patch.role } : {}),
       ...(patch.projectRoles !== undefined ? { projectRoles: patch.projectRoles } : {}),
       ...(patch.disabled !== undefined ? { disabled: patch.disabled } : {}),

@@ -8,6 +8,7 @@ import type { Context } from "hono";
 import type { NetworkAccess } from "../network/access";
 import { SignInLimiter } from "../network/rate-limit";
 import { type BearerCheck, type PrincipalHooks, peerAddress, proxyClientOf } from "../security";
+import { nameKey } from "./names";
 import type { Principal } from "./principal";
 import { AgentRateLimiter } from "./rate-limit";
 import type { MemberService } from "./service";
@@ -64,7 +65,7 @@ export class MemberAuth {
   async signIn(name: string | undefined, password: string): Promise<Member | undefined> {
     const owner = this.members.owner();
     const wanted = name?.trim();
-    if (!wanted || wanted.toLowerCase() === owner.name.toLowerCase()) {
+    if (!wanted || nameKey(wanted) === nameKey(owner.name)) {
       return (await this.network.store.checkPassword(password)) ? owner : undefined;
     }
     const member = this.members.findPersonByName(wanted);
@@ -81,7 +82,7 @@ export class MemberAuth {
   signInTarget(name: string | undefined): string {
     const owner = this.members.owner();
     const wanted = name?.trim();
-    if (!wanted || wanted.toLowerCase() === owner.name.toLowerCase()) return owner.id;
+    if (!wanted || nameKey(wanted) === nameKey(owner.name)) return owner.id;
     return this.members.findPersonByName(wanted)?.id ?? `name:${wanted.toLowerCase()}`;
   }
 

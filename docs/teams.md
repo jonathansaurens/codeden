@@ -50,7 +50,7 @@ The server can run sessions itself, as on a laptop: sign in to the agent CLIs (`
 2. Optionally add a note for yourself (who it's for).
 3. **Create link** and send the link privately. It is shown only once.
 
-The link (`https://<your server>/join#cdi_…`) works **once, for 7 days**. The person opens it, picks a display name and a passphrase (at least 15 characters; the same rules as the network access password), and is signed in on that device. On other devices they sign in with their name and passphrase.
+The link (`https://<your server>/join#cdi_…`) works **once, for 7 days**. The person opens it, picks a display name and a passphrase (at least 15 characters; the same rules as the network access password), and is signed in on that device. Names are unique as they look: a name that only differs from another member's by case, full-width forms or look-alike letters (`AIice` for `Alice`, a Cyrillic `А` for a Latin `A`) is taken, and names with invisible characters or that mix Latin with Greek or Cyrillic letters are refused. On other devices they sign in with their name and passphrase.
 
 Open invites are listed under **Open invites** with **Revoke**. A used, revoked or expired link answers "This invite link doesn't work any more", and guessing at links is throttled like wrong passwords.
 
