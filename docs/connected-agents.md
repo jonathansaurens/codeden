@@ -9,10 +9,10 @@ A **connected agent** is another agent (one running on your laptop, in CI, or an
 1. **Name** it (it appears under this name wherever its actions are shown).
 2. Pick its **role**: **Viewer** (read only) or **Operator** (can act on work). An agent is never an Owner.
 3. Optionally give it a different role on some projects, or **No access** to hide a project from it.
-4. **May answer approvals** is off by default. Without it the agent can answer agents' questions, but approvals wait for a person.
+4. **May answer approvals** is off by default. Without it the agent can answer agents' questions, but approvals wait for a person, and it can't raise a session's permissions above Supervised (when starting one or later), since that would let actions pass without asking.
 5. **Add agent**. The token (`cda_…`) is shown **once**, with setup snippets.
 
-Each agent's row shows its tokens with when they were last used. **Revoke** one if it leaks; **New token** issues another (old ones keep working until revoked). **Enabled** switches the agent off without deleting it.
+Each agent's row shows its tokens with when they were last used. **Revoke** one if it leaks (its open connections close at once); **New token** issues another (old ones keep working until revoked). **Enabled** switches the agent off without deleting it.
 
 ## Connect over MCP
 
@@ -94,7 +94,7 @@ Commands are the tool names (dashes or underscores), flags their input; `--json 
 ## Safety
 
 - **Its words are untrusted content.** Whatever a connected agent sends (through the tools or the HTTP API) reaches your agents as a message from a member, introduced with the agent's name and role, never as your own words or CodeDen's instructions. It doesn't carry your authority: for example a PM won't start work on an issue from an untrusted author because a connected agent asked. A PM turn its message started acts with the agent's role, so a PM won't change an automation for it either.
-- **Approvals need a person** unless you turned on **May answer approvals** for that agent; it can still answer questions. MCP servers' forms (which can ask for keys) always wait for a person.
+- **Approvals need a person** unless you turned on **May answer approvals** for that agent; it can still answer questions. Without it the agent also can't set a session's permissions to Auto or Full, and an answer or a cancel sent to an approval is refused. MCP servers' forms (which can ask for keys) always wait for a person.
 - **Rate limits.** Each token can make a burst of 30 requests, then 120 a minute on average (429 with `Retry-After` beyond that). A long `wait_for_session` counts once.
 - **Bad tokens are throttled** per address like wrong passwords (after three, each try waits, then the address is locked out for 15 minutes), and logged in `~/.codeden/logs/remote-access.log`.
 - **Tokens are stored hashed** (SHA-256), shown once, and revocable. A disabled or deleted agent's tokens stop working at once.

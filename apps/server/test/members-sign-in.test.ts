@@ -119,6 +119,42 @@ describe("members: the first owner, invites and sign-in", () => {
     expect(wrong.status).toBe(401);
   });
 
+  it("never resets the throttle on guesses at another member when one signs in", async () => {
+    env = await startMembersEnv();
+    await env.join(await env.invite("viewer"), "Ana");
+    await env.join(await env.invite("viewer"), "Ben");
+    const from = "198.51.100.40";
+    const signIn = async (name: string, password: string) =>
+      (
+        await env?.remote("/api/auth/sign-in", {
+          ...jsonInit("POST", { name, password }),
+          from,
+        })
+      )?.status;
+    const wrong = "orbit-candle-maple-river-quiet";
+    // Mallory (here: Ana's own account) guesses at Ben's, signing in as herself in between.
+    const statuses = [
+      await signIn("Ben", wrong),
+      await signIn("Ben", wrong),
+      await signIn("Ana", MEMBER_PASSWORD),
+      await signIn("Ben", wrong),
+      await signIn("Ben", wrong),
+    ];
+    expect(statuses).toEqual([401, 401, 200, 401, 429]);
+  });
+
+  it("never resets the throttle on invite guesses when a valid invite is used", async () => {
+    env = await startMembersEnv();
+    const secret = await env.invite("viewer");
+    const from = "198.51.100.41";
+    const check = async (s: string) =>
+      (await env?.remote("/api/auth/invite", { ...jsonInit("POST", { secret: s }), from }))?.status;
+    const guess = `cdi_${"x".repeat(43)}`;
+    const statuses = [await check(guess), await check(guess), await check(secret)];
+    statuses.push(await check(guess), await check(guess));
+    expect(statuses).toEqual([400, 400, 200, 400, 429]);
+  });
+
   it("refuses expired and revoked invites", async () => {
     env = await startMembersEnv();
     const expired = await env.invite("viewer");

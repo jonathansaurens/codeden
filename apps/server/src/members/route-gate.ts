@@ -1,10 +1,10 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { matchedRoutes } from "hono/route";
 import type { AppServices } from "../services/container";
-import { type AuthTarget, authorize, ownsEverything } from "./authorize";
+import { type AuthTarget, authorize, ownsEverything, roleFor } from "./authorize";
 import { principalOf } from "./principal";
 import { isPrivateSession } from "./privacy";
-import { ROUTE_RULES, type RouteRule, type Scope } from "./route-rules";
+import { type EntityKind, ROUTE_RULES, type RouteRule, type Scope } from "./route-rules";
 import { filterResponse, projectOfEntity, sessionOfEntity } from "./visibility";
 
 /** Where the API is mounted; route patterns in `ROUTE_RULES` are relative to it. */
@@ -85,6 +85,38 @@ async function sessionNamed(
   return scope.query.includes("sessionId") ? (c.req.query("sessionId") ?? null) : null;
 }
 
+/**
+ * Does the entity a path parameter names exist? For a member with a hidden project, a missing
+ * one is refused as "not found", like one in the hidden project, so the two can't be told apart.
+ * Kinds without a cheap lookup count as existing.
+ */
+function entityExists(s: AppServices, entity: EntityKind, id: string): boolean {
+  try {
+    switch (entity) {
+      case "project":
+        return s.projects.list({ includeArchived: true }).some((p) => p.id === id);
+      case "session":
+        return s.sessionRepo.find(id) !== undefined;
+      case "inbox":
+        return s.inbox.find(id) !== undefined;
+      case "automation":
+        return s.automations.definitions.find(id) !== undefined;
+      case "run":
+        return s.automations.runs.find(id) !== undefined;
+      case "conflict":
+        s.orchestration.conflicts.get(id);
+        return true;
+      case "artifact":
+        s.artifacts.get(id);
+        return true;
+      case "pr":
+        return true;
+    }
+  } catch {
+    return false;
+  }
+}
+
 function deny(c: Context, status: 401 | 403 | 404, code: string, message: string) {
   return c.json({ error: { code, message } }, status);
 }
@@ -119,7 +151,16 @@ export function routeGate(s: AppServices): MiddlewareHandler {
     if (!owner && rule.need !== "member") {
       const target = await targetOf(s, c, rule.scope ?? "server", params);
       const decision = authorize(principal, rule.need, target, ctx);
-      if (!decision.ok) return deny(c, decision.status, decision.code, decision.message);
+      if (!decision.ok) {
+        const scope = rule.scope;
+        const id = scope && typeof scope === "object" && "param" in scope && params[scope.param];
+        // For a member with a hidden project, a missing entity answers like a hidden one.
+        const hides = roleFor(principal.member, { kind: "global" }, ctx) === "none";
+        if (decision.status === 403 && hides && id && !entityExists(s, scope.entity, id)) {
+          return deny(c, 404, "not_found", "Not found");
+        }
+        return deny(c, decision.status, decision.code, decision.message);
+      }
     }
     await next();
     if (rule.filter && c.res.ok) {

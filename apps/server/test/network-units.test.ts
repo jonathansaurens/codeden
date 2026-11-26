@@ -109,9 +109,31 @@ describe("SignInLimiter", () => {
     expect(limiter.check("a").allowed).toBe(true);
     limiter.fail("a");
     expect(limiter.check("a").allowed).toBe(true);
-    for (let i = 0; i < 3; i++) limiter.fail("b");
-    limiter.succeed("b");
+    for (let i = 0; i < 3; i++) limiter.fail("b", "ana");
+    limiter.succeed("b", "ana");
     expect(limiter.check("b").allowed).toBe(true);
+  });
+
+  it("clears on success only the failures for the same target", () => {
+    let now = 0;
+    const limiter = new SignInLimiter(() => now);
+    // Guessing at Ben's passphrase, then signing in as oneself, doesn't reset the guesses.
+    for (let i = 0; i < 3; i++) limiter.fail("a", "ben");
+    limiter.succeed("a", "mallory");
+    expect(limiter.check("a").allowed).toBe(false);
+    // Failures without a target (invite secrets, agent tokens) only age out.
+    now += 15 * 60_000;
+    for (let i = 0; i < 3; i++) limiter.fail("c");
+    limiter.succeed("c", "ana");
+    expect(limiter.check("c").allowed).toBe(false);
+    // One's own typos are forgiven once the right passphrase comes.
+    limiter.fail("d", "ana");
+    limiter.fail("d", "ben");
+    limiter.fail("d", "ana");
+    limiter.succeed("d", "ana");
+    limiter.fail("d", "ben");
+    limiter.fail("d", "ben");
+    expect(limiter.check("d").allowed).toBe(false);
   });
 });
 

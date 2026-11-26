@@ -8,6 +8,25 @@ import { isLoopbackAddress } from "./addresses";
  */
 export const proxiedSockets = new WeakSet<object>();
 
+/** Who a connection last authenticated as (a request's principal), for closing one member's connections. */
+export interface ConnectionOwner {
+  memberId: string;
+  via: "install" | "session" | "token";
+  /** The device's remote session id, for `via: "session"`. */
+  sessionId?: string;
+  /** The agent token's id, for `via: "token"`. */
+  tokenId?: string;
+}
+
+/**
+ * The owner of each connection that carried an authenticated request, set by the security
+ * middleware. A WebSocket keeps its upgrade request's owner for as long as it is open.
+ */
+export const connectionOwners = new WeakMap<object, ConnectionOwner>();
+
+/** Which connections to close: every field given must match the connection's owner. */
+export type ConnectionMatch = Partial<ConnectionOwner>;
+
 export type BindHost = "127.0.0.1" | "0.0.0.0";
 
 /** How long a rebind keeps retrying while the OS releases the port. */
@@ -83,6 +102,25 @@ export class HttpListener {
     let dropped = 0;
     for (const socket of this.sockets) {
       if (!isLoopbackAddress(socket.remoteAddress) || proxiedSockets.has(socket)) {
+        socket.destroy();
+        dropped++;
+      }
+    }
+    return dropped;
+  }
+
+  /**
+   * Close the connections whose owner matches (one member's, device's or token's), wherever
+   * they come from, except `except` (the request asking for it, so it still gets its answer).
+   */
+  dropMatching(match: ConnectionMatch, except?: object): number {
+    const keys = Object.entries(match).filter(([, value]) => value !== undefined);
+    if (keys.length === 0) return 0;
+    let dropped = 0;
+    for (const socket of this.sockets) {
+      if (socket === except) continue;
+      const owner = connectionOwners.get(socket) as Record<string, unknown> | undefined;
+      if (owner && keys.every(([key, value]) => owner[key] === value)) {
         socket.destroy();
         dropped++;
       }

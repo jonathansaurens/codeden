@@ -37,6 +37,11 @@ export class FakeListener {
     this.dropped++;
     return 0;
   }
+  /** One member's, device's or token's connections (counted like a drop). */
+  dropMatching() {
+    this.dropped++;
+    return 0;
+  }
 }
 
 export let dir: string;

@@ -63,7 +63,7 @@ function setStatus(e: MembersEnv, id: string, projectId: string, status: Session
 describe("member tools (§C.2)", () => {
   it("lists every tool to an Operator and only reading tools to a Viewer, over MCP", async () => {
     env = await startMembersEnv();
-    const operator = await env.agent({ name: "op", role: "operator" });
+    const operator = await env.agent({ name: "op", role: "operator", mayAnswerApprovals: true });
     const viewer = await env.agent({ name: "watcher", role: "viewer" });
     const op = await mcpClient(env, operator.as);
     const view = await mcpClient(env, viewer.as);
@@ -80,6 +80,47 @@ describe("member tools (§C.2)", () => {
       await op.close();
       await view.close();
     }
+  });
+
+  it("answers an empty JSON-RPC batch with Invalid Request", async () => {
+    const e = await startMembersEnv();
+    env = e;
+    const bot = await e.agent({ name: "bot", role: "viewer" });
+    const res = await e.remote("/api/member-mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: "[]",
+      as: bot.as,
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ jsonrpc: "2.0", id: null, error: { code: -32600 } });
+  });
+
+  it("lists no tool the agent can't use anywhere", async () => {
+    const e = await startMembersEnv();
+    env = e;
+    const names = async (as: Credential) => {
+      const res = await e.remote("/api/member-tools", { as });
+      return ((await res.json()) as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
+    };
+    // Approvals wait for a person unless the agent may answer them.
+    const helper = await env.agent({ name: "helper", role: "operator" });
+    expect(await names(helper.as)).not.toContain("answer_approval");
+    expect(await names(helper.as)).toContain("answer_question");
+    // A role on a project that is gone gives nothing.
+    const watcher = await env.agent({ name: "watcher", role: "viewer" });
+    const member = env.server.services.members.get(watcher.id);
+    env.server.store.append([
+      {
+        type: "member.updated",
+        sessionId: null,
+        payload: { member: { ...member, projectRoles: { gone: "operator" } } },
+      },
+    ]);
+    expect((await names(watcher.as)).some((n) => OPERATOR_TOOLS.includes(n))).toBe(false);
   });
 
   it("filters by role per project and hides projects without one", async () => {

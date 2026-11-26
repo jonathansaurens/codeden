@@ -15,8 +15,6 @@ import { projectOfEntity } from "./visibility";
 /** Global events that say nothing about any project's work. */
 const NEUTRAL_EVENTS = new Set([
   "settings.updated",
-  "member.created",
-  "member.updated",
   "member.deleted",
   "projects.reordered",
   "pty.exited",
@@ -26,6 +24,9 @@ const NEUTRAL_EVENTS = new Set([
   "runner.disconnected",
   "runner.draining",
 ]);
+
+/** Events that carry a whole member, for Owners only. */
+const MEMBER_DETAIL_EVENTS = new Set(["member.created", "member.updated"]);
 
 /** A project id a domain event's payload names, if any. */
 function payloadProject(payload: unknown): string | null | undefined {
@@ -109,8 +110,13 @@ export function eventFilterFor(
     if (!sessionProjects.has(id)) sessionProjects.set(id, projectOfEntity(s, "session", id));
     return sessionProjects.get(id) ?? null;
   };
+  // A member event carries the whole member: roles, project roles (naming projects others may
+  // not see), whether it is disabled, who created it. That is the Owners' view (`GET /members`);
+  // everyone else has names from `/members/summaries`, and their own roles from `/members/me`.
+  const administers = authorize(principal, "owner", { kind: "server" }, ctx).ok;
   return (e) => {
     if (privateEvent(e, member, hidden)) return false;
+    if (MEMBER_DETAIL_EVENTS.has(e.type)) return administers;
     if (e.sessionId) {
       if (e.type === "session.created" || e.type === "session.updated") {
         const projectId = payloadProject(e.payload);
@@ -151,10 +157,17 @@ function sessionAccess(s: AppServices, principal: Principal, sessionId: string):
   return roleAtLeast(roleFor(principal.member, target, ctx), "viewer") ? "read" : null;
 }
 
+/** Does the session run on the home runner, the server itself? */
+function runsOnServer(s: AppServices, sessionId: string): boolean {
+  return s.runners.forSession(sessionId) === s.runner;
+}
+
 /**
- * Terminals (§B.3, open question 3: read-only for Viewers). A session's terminal: Operators
- * drive it, Viewers may attach to one that is open and watch. A terminal outside any session is
- * a shell on the server, so it is the server owners' alone.
+ * Terminals (§B.3, open question 3: read-only for Viewers). A terminal outside any session is a
+ * shell on the server, so it is the server owners' alone. A session's terminal on the home
+ * runner is a shell on the server too: only an Owner of the server drives it, and Operators and
+ * Viewers may attach to one that is open and watch. On a machine (or any other runner, which is
+ * separate from the server and trusted with nothing of it) Operators drive it as well.
  */
 export function terminalAccess(
   s: AppServices,
@@ -171,7 +184,14 @@ export function terminalAccess(
       ? "full"
       : null;
   }
-  const access = sessionAccess(s, principal, query.sessionId);
+  let access = sessionAccess(s, principal, query.sessionId);
+  if (
+    access === "full" &&
+    runsOnServer(s, query.sessionId) &&
+    !authorize(principal, "owner", { kind: "server" }, authorizeContext(s)).ok
+  ) {
+    access = "read";
+  }
   // Watching is attaching to an open terminal; opening one, or running a command, is acting.
   if (access === "read" && (!query.ptyId || query.command)) return null;
   return access;

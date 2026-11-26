@@ -1,4 +1,4 @@
-import type { Actor, UserInput } from "@codeden/contracts";
+import type { Actor, AutonomyLevel, RuntimeResponse, UserInput } from "@codeden/contracts";
 import { forbidden } from "../services/errors";
 import { currentActor, currentPrincipal } from "./principal";
 
@@ -62,4 +62,32 @@ export function assertMayAnswerApproval(): void {
       "approvals_not_allowed",
     );
   }
+}
+
+/**
+ * A session's autonomy decides which approvals are asked at all, so letting fewer of them be
+ * asked is answering them: a connected agent without "May answer approvals" may only choose a
+ * level that asks for everything (Supervised) or allows no changes (Read-only). People's roles
+ * decide for them, as before. Throws 403 otherwise.
+ */
+export function assertMayChooseAutonomy(level: AutonomyLevel | undefined): void {
+  if (level === undefined || level === "read_only" || level === "supervised") return;
+  const member = currentPrincipal()?.member;
+  if (member?.kind === "agent" && !member.mayAnswerApprovals) {
+    throw forbidden(
+      "This connected agent may not change autonomy, which decides approvals. An owner can allow it in Settings › Members (May answer approvals).",
+      "approvals_not_allowed",
+    );
+  }
+}
+
+/**
+ * A response as a person or connected agent sent it over the API: who decided is the server's to
+ * say. An approval is the user's (the member who answered is recorded as `answeredBy`), never the
+ * `policy` or `pm` a client might claim.
+ */
+export function asAnswered(response: RuntimeResponse): RuntimeResponse {
+  if (response.kind !== "approval") return response;
+  const { decidedBy: _claimed, ...rest } = response;
+  return { ...rest, decidedBy: "user" };
 }

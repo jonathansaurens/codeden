@@ -139,6 +139,26 @@ describe("roles on the server (§B.3)", () => {
     expect((await env.remote("/api/usage/report", { as: ana })).status).toBe(403);
   });
 
+  it("refuses per-project roles for projects that don't exist", async () => {
+    env = await startMembersEnv();
+    seedProjects(env.server, ["p1"]);
+    const bad = { projectRoles: { p1: "operator", nope: "viewer" } };
+    for (const [method, path, body] of [
+      ["POST", "/api/members/invites", { role: "viewer", ...bad }],
+      ["POST", "/api/members/agents", { name: "bot", role: "viewer", ...bad }],
+      ["PATCH", "/api/members/owner", bad],
+    ] as const) {
+      const res = await env.local(path, jsonInit(method, body));
+      expect(res.status, `${method} ${path}`).toBe(400);
+      expect(await res.json()).toMatchObject({ error: { code: "unknown_project" } });
+    }
+    const ok = await env.local(
+      "/api/members/invites",
+      jsonInit("POST", { role: "viewer", projectRoles: { p1: "operator" } }),
+    );
+    expect(ok.status).toBe(200);
+  });
+
   it("filters the live event stream and transcripts to visible projects", async () => {
     env = await startMembersEnv();
     seedProjects(env.server, ["p1", "p2"]);
@@ -175,6 +195,56 @@ describe("roles on the server (§B.3)", () => {
     }
   });
 
+  it("sends whole members only to Owners on the live event stream", async () => {
+    env = await startMembersEnv();
+    seedProjects(env.server, ["p1", "p2"]);
+    const ana = await joined(env, "Ana", "operator", { p2: "none" });
+    const omar = await env.join(await env.invite("owner"), "Omar");
+    const open = (as: Credential) =>
+      TestWsClient.open(env?.server.url ?? "", {
+        host: TEAM_HOST,
+        "x-forwarded-for": "203.0.113.7",
+        cookie: (as as { cookie: string }).cookie,
+      });
+    const anaWs = await open(ana);
+    const omarWs = await open(omar);
+    try {
+      for (const ws of [anaWs, omarWs]) {
+        ws.send({ type: "subscribe", fromSeq: env.server.store.headSeq() });
+      }
+      const bot = await env.agent({ name: "bot", role: "viewer", projectRoles: { p2: "none" } });
+      await env.local(`/api/members/${bot.id}`, jsonInit("PATCH", { name: "Bot" }));
+      env.server.store.append([
+        {
+          type: "session.updated",
+          sessionId: "s-p1",
+          payload: {
+            session: {
+              ...sampleSession,
+              id: "s-p1",
+              projectId: "p1",
+              status: "idle",
+              title: "marker",
+            },
+          },
+        },
+      ]);
+      const marker = (m: UiServerMessage) =>
+        m.type === "events" && JSON.stringify(m).includes("marker");
+      await anaWs.waitFor(marker);
+      await omarWs.waitFor(marker);
+      const types = (ws: TestWsClient) =>
+        ws.messages.flatMap((m) => (m.type === "events" ? m.events.map((e) => e.type) : []));
+      expect(types(anaWs)).not.toContain("member.created");
+      expect(types(anaWs)).not.toContain("member.updated");
+      expect(JSON.stringify(anaWs.messages)).not.toContain('"p2"');
+      expect(types(omarWs)).toEqual(expect.arrayContaining(["member.created", "member.updated"]));
+    } finally {
+      anaWs.close();
+      omarWs.close();
+    }
+  });
+
   it("gives Viewers read-only terminals: no new shells, nothing outside a session", async () => {
     env = await startMembersEnv();
     seedProjects(env.server, ["p1"]);
@@ -199,6 +269,31 @@ describe("roles on the server (§B.3)", () => {
     expect(await status("/ws/pty")).toBe(403);
     expect(await status("/ws/pty?sessionId=s-p1&ptyId=pty-unknown&command=ls")).toBe(403);
     expect(await status("/ws/browser?sessionId=s-p1&open=1")).toBe(101);
+  });
+
+  it("answers a hidden project's inbox item like a missing one", async () => {
+    env = await startMembersEnv();
+    seedProjects(env.server, ["p1", "p2"]);
+    const hidden = env.server.services.inbox.raiseRunFailed(
+      env.server.services.sessionRepo.get("s-p2"),
+      "boom",
+      "it failed",
+    ).id;
+    const ana = await joined(env, "Ana", "operator", { p2: "none" });
+    for (const id of [hidden, "inbox:nope"]) {
+      const get = await env.remote(`/api/inbox/${id}`, { as: ana });
+      const resolve = await env.remote(`/api/inbox/${id}/resolve`, {
+        ...jsonInit("POST", { status: "dismissed" }),
+        as: ana,
+      });
+      expect([get.status, resolve.status], id).toEqual([404, 404]);
+    }
+  });
+
+  it("answers 404 for resuming the factory of a project that doesn't exist", async () => {
+    env = await startMembersEnv();
+    const res = await env.local("/api/projects/nope/factory/resume", jsonInit("POST", {}));
+    expect(res.status).toBe(404);
   });
 
   it("changes nothing for the owner of a single-user install", async () => {

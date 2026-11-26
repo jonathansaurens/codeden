@@ -50,7 +50,7 @@ The server can run sessions itself, as on a laptop: sign in to the agent CLIs (`
 2. Optionally add a note for yourself (who it's for).
 3. **Create link** and send the link privately. It is shown only once.
 
-The link (`https://<your server>/join#cdi_…`) works **once, for 7 days**. The person opens it, picks a display name and a passphrase (at least 15 characters; the same rules as the network access password), and is signed in on that device. On other devices they sign in with their name and passphrase.
+The link (`https://<your server>/join#cdi_…`) works **once, for 7 days**. The person opens it, picks a display name and a passphrase (at least 15 characters; the same rules as the network access password), and is signed in on that device. Names are unique as they look: a name that only differs from another member's by case, full-width forms or look-alike letters (`AIice` for `Alice`, a Cyrillic `А` for a Latin `A`) is taken, and names with invisible characters or that mix Latin with Greek or Cyrillic letters are refused. On other devices they sign in with their name and passphrase.
 
 Open invites are listed under **Open invites** with **Revoke**. A used, revoked or expired link answers "This invite link doesn't work any more", and guessing at links is throttled like wrong passwords.
 
@@ -59,13 +59,14 @@ Open invites are listed under **Open invites** with **Revoke**. A used, revoked 
 | Role | Can |
 |---|---|
 | **Viewer** | See everything live: projects, the orchestrator, PM and agent transcripts, diffs, files, terminals (read-only: watch a terminal that is open, never type), the inbox, usage and the factory |
-| **Operator** | Viewer, plus act on work: message the orchestrator, PMs and sessions; start, stop and archive sessions; answer questions and approvals; comment on diffs; run automations; commit, push and open PRs from a session |
-| **Owner** | Operator, plus administer: settings, projects, automations, machines, members and invites, secrets and provider logins, network access |
+| **Operator** | Viewer, plus act on work: message the orchestrator, PMs and sessions; start, stop and archive sessions; answer questions and approvals; comment on diffs; run automations; commit, push and open PRs from a session; open and type in the terminals of sessions on a machine |
+| **Owner** | Operator, plus administer: settings, projects, automations, machines, members and invites, secrets and provider logins, network access; open and type in terminals on the server itself |
 
 - **Per-project roles.** A member's role can be raised or lowered for a project: for example Viewer everywhere and Operator on `helpdesk-ai`. Pick **No access** for a project to hide it: it doesn't appear in their lists, and its pages and sessions answer "not found".
 - **Your own orchestrator.** Everyone has an orchestrator of their own (Viewers can read theirs, Operators and Owners also message it). It sees only the projects you can see, and nobody else can read it, Owners included. See [Everyone's own orchestrator](orchestration.md#everyones-own-orchestrator).
 - **Work across projects** (usage reports, the factory overview, bulk inbox changes) needs the role on *every* project, so a member with a hidden project can't learn about it that way.
 - **The orchestrator and the PMs act with your role.** What they do for you is checked against the role of whoever's messages started their turn, so an Operator can't create a project or change an automation by asking the orchestrator or a PM to. See [Whose role they act with](orchestration.md#whose-role-they-act-with).
+- **Terminals on the server are an Owner's.** A session's terminal is a shell on the computer the session runs on. For a session on **Home** (the server itself), that shell could read CodeDen's own home, its database and secrets, so only an Owner of the server may open one or type in it; Operators and Viewers can watch one that is open. On a **machine** (an SSH machine, or any other runner) the computer is separate from the server and trusted with nothing of it, so Operators open and type in terminals there as usual. Agents themselves are kept out of CodeDen's home on Home by the permission policy (anything there asks at every level; see [Security](security.md#permissions)); a terminal has no such check, which is why it needs the Owner role.
 - **The server decides.** Every HTTP route, live update, terminal and member tool checks the role on the server; the UI only hides what the server would refuse. A refused action says which role it needs.
 - **The first owner** always stays an enabled owner, and can't be deleted. Other owners can be invited.
 

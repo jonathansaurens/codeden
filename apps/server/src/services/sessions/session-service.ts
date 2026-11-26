@@ -33,6 +33,7 @@ import {
   answeredByOf,
   asSent,
   assertMayAnswerApproval,
+  assertMayChooseAutonomy,
 } from "../../members/attribution";
 import { currentActor } from "../../members/principal";
 import type { SettingsStore } from "../../settings-store";
@@ -173,6 +174,7 @@ export class SessionService {
    * or title.
    */
   update(id: string, req: UpdateSessionRequest): Promise<Session> {
+    assertMayChooseAutonomy(req.autonomy);
     if (req.untilChecksPass !== undefined || req.checkRounds !== undefined) {
       const session = this.deps.repo.get(id);
       if (session.role !== "agent" || !session.checks?.commands.length) {
@@ -235,6 +237,10 @@ export class SessionService {
     req: StartSessionRequest,
     opts: { ownerMemberId?: string; machine?: MachinePlacement } = {},
   ): Promise<StartSessionResponse> {
+    // Purpose and work key come from the text as written: a connected agent's message gets an
+    // introduction line below, which would give every session it starts the same key.
+    assertMayChooseAutonomy(req.autonomy);
+    const ownInput = req.input;
     // The opening message is the user's when a person (or connected agent) started it (§B.4).
     if (req.input) {
       req = {
@@ -252,7 +258,7 @@ export class SessionService {
     }
     // Refused before the conflict check: a worktree that can't be made is never queued either.
     const workspace = startWorkspace(req.workspace, project);
-    const purpose = derivePurpose(req.purpose, req.input?.text);
+    const purpose = derivePurpose(req.purpose, ownInput?.text);
     const workKey = deriveWorkKey({
       workKey: req.workKey,
       issueNumber: req.issue?.number,
@@ -274,8 +280,9 @@ export class SessionService {
           if (target.projectId !== req.projectId) {
             throw badRequest("Can only join a session in the same project", "join_mismatch");
           }
-          if (req.input) {
-            await this.send(target.id, { input: req.input, whenBusy: "queue" }, req.startedBy.kind);
+          // `send` introduces a connected agent's message itself.
+          if (ownInput) {
+            await this.send(target.id, { input: ownInput, whenBusy: "queue" }, req.startedBy.kind);
           }
           return { status: "joined", sessionId: target.id };
         }
@@ -528,10 +535,21 @@ export class SessionService {
   /** Answer a question or approval; `by` is who answered a question (the user or the PM). */
   async respond(id: string, req: RespondRequest, by: Answerer = "user"): Promise<void> {
     this.deps.repo.get(id);
-    if (req.response.kind === "approval") assertMayAnswerApproval();
+    // What the pending request is decides who may answer it, not the response's kind: an answer
+    // or a cancel sent to an approval would decide it as much as a denial does.
+    const answered = this.deps.inbox.findForRequest(id, req.requestId);
+    const asks =
+      this.deps.repo.requestKind(id, req.requestId) ??
+      (answered?.kind === "approval" || answered?.kind === "question" ? answered.kind : undefined);
+    if (asks === "approval" && req.response.kind !== "approval") {
+      throw badRequest("This request is an approval: answer it with a decision.", "wrong_response");
+    }
+    if (asks === "question" && req.response.kind === "approval") {
+      throw badRequest("This request is a question: answer it with answers.", "wrong_response");
+    }
+    if (asks === "approval" || req.response.kind === "approval") assertMayAnswerApproval();
     // Two people answering at once (§B.4): the first answer wins, the second hears who gave it.
     const key = `${id}\u0000${req.requestId}`;
-    const answered = this.deps.inbox.findForRequest(id, req.requestId);
     if (answered && answered.status !== "open") throw this.alreadyAnswered(answered.resolution);
     const claimed = this.answering.get(key);
     if (claimed !== undefined) throw this.alreadyAnswered({ answeredBy: claimed });
@@ -557,7 +575,11 @@ export class SessionService {
 
   private async answer(id: string, req: RespondRequest, by: Answerer): Promise<void> {
     // Questions asked through CodeDen's ask_user tool are answered here, not by the provider.
-    if (await this.deps.questions.respond(id, req.requestId, req.response, by)) return;
+    if (await this.deps.questions.respond(id, req.requestId, req.response, by)) {
+      // Its item closed with the question: it still records who answered.
+      this.deps.inbox.closeForRequest(id, req.requestId, { decidedBy: by, ...answeredBy() });
+      return;
+    }
     await this.runnerOf(id)
       .request({
         name: "session.respond",

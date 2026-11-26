@@ -7,9 +7,13 @@ import { isTurnRunningError } from "./outbox-holds";
 import type { SessionRepo } from "./repo";
 import type { SessionService } from "./session-service";
 
-/** The message sent to an agent whose turn was cut off by a restart (§4.2). */
+/**
+ * The message sent to an agent whose turn was cut off by a restart (§4.2). A question or
+ * approval it was waiting on is closed by the restart, and a provider may report that to the
+ * agent as a rejection: the message says nobody turned it down.
+ */
 export const RESTART_CONTINUE_MESSAGE =
-  "You were interrupted by a CodeDen restart; continue where you left off.";
+  "You were interrupted by a CodeDen restart; continue where you left off. If you were waiting on a question or an approval, the restart withdrew it: nobody answered or rejected it, so ask again if you still need it.";
 
 export interface RecoveryDeps extends RunnerDeps {
   repo: SessionRepo;

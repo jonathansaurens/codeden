@@ -3,7 +3,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { type Principal, runAs, setPrincipal } from "./members/principal";
 import { isLoopbackAddress, normalizeAddress } from "./network/addresses";
-import { proxiedSockets } from "./network/listener";
+import { connectionOwners, proxiedSockets } from "./network/listener";
 import { tokensEqual } from "./token";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
@@ -92,6 +92,16 @@ export interface SecurityOptions {
 function proceedAs(c: Context, next: () => Promise<void>, principal: Principal | undefined) {
   if (!principal) return next();
   setPrincipal(c, principal);
+  // So a member's, device's or token's connections can be closed when its access changes.
+  const socket = requestSocket(c);
+  if (socket) {
+    connectionOwners.set(socket, {
+      memberId: principal.member.id,
+      via: principal.via,
+      ...(principal.sessionId !== undefined && { sessionId: principal.sessionId }),
+      ...(principal.tokenId !== undefined && { tokenId: principal.tokenId }),
+    });
+  }
   return runAs(principal, next);
 }
 
@@ -127,6 +137,12 @@ export function loopbackOrigins(port: number): string[] {
 export function peerAddress(c: Context): string {
   const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined;
   return normalizeAddress(env?.incoming?.socket?.remoteAddress);
+}
+
+/** The connection a request came in on, if the server knows it (not in-process test requests). */
+export function requestSocket(c: Context): object | undefined {
+  const env = c.env as { incoming?: { socket?: object } } | undefined;
+  return env?.incoming?.socket;
 }
 
 /** What the middleware records on a request that named a trusted origin's host. */

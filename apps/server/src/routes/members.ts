@@ -3,6 +3,7 @@ import {
   type CreateAgentResponse,
   CreateInviteRequest,
   type CreateInviteResponse,
+  type Member,
   type MemberActivityResponse,
   type MemberDetail,
   type MemberRole,
@@ -22,8 +23,9 @@ import { ACTIVITY_QUERY_TYPES, activityOf } from "../members/activity";
 import type { MemberAuth } from "../members/auth";
 import { type Principal, principalOf } from "../members/principal";
 import type { NetworkAccess } from "../network/access";
+import { requestSocket } from "../security";
 import type { AppServices } from "../services/container";
-import { forbidden, notFound, ServiceError } from "../services/errors";
+import { badRequest, forbidden, notFound, ServiceError } from "../services/errors";
 import { jsonBody } from "./validate";
 
 /** Events in the activity list, and the rows read to find them (stops hide among updates). */
@@ -41,6 +43,31 @@ export function callerOf(c: Context): Principal {
   const principal = principalOf(c);
   if (!principal) throw new ServiceError(403, "forbidden", "Sign in first.");
   return principal;
+}
+
+/** Per-project roles may only name projects that exist (archived ones too). */
+function assertProjectsExist(s: AppServices, projectRoles: Record<string, unknown> | undefined) {
+  const ids = Object.keys(projectRoles ?? {});
+  if (ids.length === 0) return;
+  const known = new Set(s.projects.list({ includeArchived: true }).map((p) => p.id));
+  const missing = ids.filter((id) => !known.has(id));
+  if (missing.length > 0) {
+    throw badRequest(`No such project: ${missing.join(", ")}`, "unknown_project");
+  }
+}
+
+/** Did a change alter what the member may see or do? */
+function accessChanged(before: Member, after: Member): boolean {
+  return (
+    before.role !== after.role ||
+    before.disabled !== after.disabled ||
+    before.mayAnswerApprovals !== after.mayAnswerApprovals ||
+    JSON.stringify(sortedRoles(before)) !== JSON.stringify(sortedRoles(after))
+  );
+}
+
+function sortedRoles(member: Member): [string, string][] {
+  return Object.entries(member.projectRoles).sort(([a], [b]) => a.localeCompare(b));
 }
 
 /** Owners' view of one member: its devices and tokens too. */
@@ -127,6 +154,7 @@ export function memberRoutes(ctx: MemberRouteContext) {
         return c.json(body);
       })
       .post("/invites", jsonBody(CreateInviteRequest), (c) => {
+        assertProjectsExist(s, c.req.valid("json").projectRoles);
         const body: CreateInviteResponse = s.invites.create(
           c.req.valid("json"),
           callerOf(c).member.id,
@@ -139,9 +167,15 @@ export function memberRoutes(ctx: MemberRouteContext) {
       })
       .patch("/:id", jsonBody(UpdateMemberRequest), (c) => {
         const id = c.req.param("id");
+        assertProjectsExist(s, c.req.valid("json").projectRoles);
+        const before = s.members.get(id);
         const member = s.members.update(id, c.req.valid("json"));
-        // Its open connections close, so a disabled member's devices notice at once.
-        if (member.disabled) ctx.network.dropRemote();
+        // A change of access reaches the member's open connections at once: they close (its
+        // live updates, transcripts and terminals too) and reconnect with the new role, or not
+        // at all when it was disabled. Nobody else's connections close, nor this request's.
+        if (accessChanged(before, member)) {
+          ctx.network.dropConnections({ memberId: id }, requestSocket(c));
+        }
         return c.json(detail(ctx, id, callerOf(c).sessionId ?? null));
       })
       .delete("/:id", (c) => {
@@ -150,12 +184,13 @@ export function memberRoutes(ctx: MemberRouteContext) {
         if (id === OWNER_MEMBER_ID)
           throw forbidden("The first owner can't be deleted.", "owner_locked");
         // Devices first: nothing may stay signed in as a member that is gone.
-        ctx.auth.cutOff(id);
+        ctx.auth.cutOff(id, requestSocket(c));
         s.members.delete(id);
         return c.json({ ok: true as const });
       })
       // Settings › Members › Add agent (§C.1): the token is shown once.
       .post("/agents", jsonBody(CreateAgentRequest), (c) => {
+        assertProjectsExist(s, c.req.valid("json").projectRoles);
         const body: CreateAgentResponse = s.members.addAgent(
           c.req.valid("json"),
           callerOf(c).member.id,
@@ -170,14 +205,17 @@ export function memberRoutes(ctx: MemberRouteContext) {
       })
       .delete("/:id/tokens/:tokenId", (c) => {
         const id = c.req.param("id");
-        s.members.revokeToken(id, c.req.param("tokenId"));
+        const tokenId = c.req.param("tokenId");
+        s.members.revokeToken(id, tokenId);
+        // Its open connections (an MCP stream, a WebSocket) close too.
+        ctx.network.dropConnections({ tokenId }, requestSocket(c));
         return c.json(detail(ctx, id, null));
       })
       .delete("/:id/devices/:deviceId", (c) => {
         const id = c.req.param("id");
         const device = ctx.auth.devices(id, null).find((d) => d.id === c.req.param("deviceId"));
         if (!device) throw notFound("No such device");
-        ctx.network.revoke(device.id);
+        ctx.network.revoke(device.id, requestSocket(c));
         return c.json(detail(ctx, id, callerOf(c).sessionId ?? null));
       })
   );

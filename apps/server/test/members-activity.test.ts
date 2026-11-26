@@ -5,7 +5,12 @@ import { type ActivityRow, activityOf } from "../src/members/activity";
 const olga: Actor = { memberId: "m-olga", kind: "person" };
 const bot: Actor = { memberId: "m-bot", kind: "agent" };
 let seq = 100;
-const row = (type: string, actor = olga, sessionId: string | null = "s1", payload: unknown = {}) =>
+const row = (
+  type: string,
+  actor: Actor = olga,
+  sessionId: string | null = "s1",
+  payload: unknown = {},
+) =>
   ({ seq: seq--, type, actor, sessionId, ts: "2026-11-26T08:00:00.000Z", payload }) as ActivityRow;
 const session = (status: string, stoppedBy: Actor | null = null) => ({
   session: { status, stoppedBy },

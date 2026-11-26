@@ -44,12 +44,15 @@ function clientOf(c: Context): SignInClient {
 
 /**
  * Sign-in, invite checks and joining share one throttle per address (§15.1): `attempt` runs
- * while the address's slot is held, and a `false` result counts as a failure.
+ * while the address's slot is held, and a `false` result counts as a failure. `target` is who a
+ * sign-in tries to be: a success clears only failures for that target. Invites have none, so
+ * a valid invite clears no guesses at others.
  */
 async function throttled(
   c: Context,
   ctx: NetworkRouteContext,
   reason: string,
+  target: string | null,
   attempt: () => Promise<Response | false>,
 ): Promise<Response> {
   const refuse = refuser(c);
@@ -78,11 +81,11 @@ async function throttled(
   try {
     const result = await attempt();
     if (result === false) {
-      ctx.network.failSignIn(client);
+      ctx.network.failSignIn(client, target);
       ctx.network.recordFailedSignIn(client.address, reason, client.viaProxy);
       return refuse(401, "invalid_password", "That password is not right.");
     }
-    ctx.network.succeedSignIn(client);
+    if (target !== null) ctx.network.succeedSignIn(client, target);
     return result;
   } catch (error) {
     if (error instanceof InvalidInviteError) {
@@ -138,9 +141,10 @@ export function authRoutes(ctx: NetworkRouteContext) {
       };
       return c.json(body);
     })
-    .post("/sign-in", jsonBody(SignInRequest), (c) =>
-      throttled(c, ctx, "wrong password", async () => {
-        const { name, password } = c.req.valid("json");
+    .post("/sign-in", jsonBody(SignInRequest), (c) => {
+      const { name, password } = c.req.valid("json");
+      const target = ctx.members?.auth.signInTarget(name) ?? OWNER_MEMBER_ID;
+      return throttled(c, ctx, "wrong password", target, async () => {
         const member = ctx.members
           ? await ctx.members.auth.signIn(name, password)
           : (await network.store.checkPassword(password))
@@ -149,10 +153,10 @@ export function authRoutes(ctx: NetworkRouteContext) {
         if (!member) return false;
         startSession(c, ctx, member);
         return c.json({ ok: true as const });
-      }),
-    )
+      });
+    })
     .post("/invite", jsonBody(InviteCheckRequest), (c) =>
-      throttled(c, ctx, "invalid invite", async () => {
+      throttled(c, ctx, "invalid invite", null, async () => {
         if (!ctx.members) throw new InvalidInviteError();
         const invite = ctx.members.invites.check(c.req.valid("json").secret);
         const body: InviteCheckResponse = {
@@ -164,7 +168,7 @@ export function authRoutes(ctx: NetworkRouteContext) {
       }),
     )
     .post("/join", jsonBody(JoinRequest), (c) =>
-      throttled(c, ctx, "invalid invite", async () => {
+      throttled(c, ctx, "invalid invite", null, async () => {
         if (!ctx.members) throw new InvalidInviteError();
         const member = await ctx.members.invites.join(c.req.valid("json"));
         startSession(c, ctx, member);

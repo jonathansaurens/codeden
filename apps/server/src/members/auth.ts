@@ -8,6 +8,7 @@ import type { Context } from "hono";
 import type { NetworkAccess } from "../network/access";
 import { SignInLimiter } from "../network/rate-limit";
 import { type BearerCheck, type PrincipalHooks, peerAddress, proxyClientOf } from "../security";
+import { nameKey } from "./names";
 import type { Principal } from "./principal";
 import { AgentRateLimiter } from "./rate-limit";
 import type { MemberService } from "./service";
@@ -64,7 +65,7 @@ export class MemberAuth {
   async signIn(name: string | undefined, password: string): Promise<Member | undefined> {
     const owner = this.members.owner();
     const wanted = name?.trim();
-    if (!wanted || wanted.toLowerCase() === owner.name.toLowerCase()) {
+    if (!wanted || nameKey(wanted) === nameKey(owner.name)) {
       return (await this.network.store.checkPassword(password)) ? owner : undefined;
     }
     const member = this.members.findPersonByName(wanted);
@@ -74,6 +75,17 @@ export class MemberAuth {
     return member;
   }
 
+  /**
+   * Who a sign-in with `name` tries to be, for the sign-in throttle: the member's id, or the
+   * name itself when nobody has it (failures for it still count, and nothing clears them).
+   */
+  signInTarget(name: string | undefined): string {
+    const owner = this.members.owner();
+    const wanted = name?.trim();
+    if (!wanted || nameKey(wanted) === nameKey(owner.name)) return owner.id;
+    return this.members.findPersonByName(wanted)?.id ?? `name:${wanted.toLowerCase()}`;
+  }
+
   /** A member's signed-in devices. */
   devices(memberId: string, currentSessionId: string | null): RemoteDevice[] {
     return this.network
@@ -81,10 +93,13 @@ export class MemberAuth {
       .devices.filter((d) => d.memberId === memberId);
   }
 
-  /** Sign out a member's devices and close remote connections (it was disabled or deleted). */
-  cutOff(memberId: string): void {
+  /**
+   * Sign out a member's devices and close its connections, on any address (it is being deleted).
+   * Other members' connections stay open, and so does `except`: the request asking for it.
+   */
+  cutOff(memberId: string, except?: object): void {
     this.network.store.revokeMember(memberId);
-    this.network.dropRemote();
+    this.network.dropConnections({ memberId }, except);
   }
 
   private checkBearer(token: string, c: Context): BearerCheck {
@@ -104,7 +119,7 @@ export class MemberAuth {
       this.network.recordFailedSignIn(address, "invalid agent token", proxy !== undefined);
       return { refused: 401, message: "Missing or invalid CodeDen agent token" };
     }
-    this.tokenFailures.succeed(address);
+    // A good token clears nothing: bad ones are guesses at other tokens, and only age out.
     const rate = this.rate.take(verified.tokenId);
     if (!rate.allowed) {
       return {
