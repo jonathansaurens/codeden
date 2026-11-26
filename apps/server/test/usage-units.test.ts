@@ -66,6 +66,13 @@ describe("price table", () => {
     expect(findPrice("codex", "gpt-5.1-codex-mini")?.inputPerMTok).toBe(0.25);
     // `gpt-5` must not swallow `gpt-5.5`.
     expect(findPrice("codex", "gpt-5.5")?.inputPerMTok).toBe(5);
+    expect(findPrice("codex", "gpt-6.2-astra")).toMatchObject({
+      label: "GPT-6.2 Astra",
+      inputPerMTok: 8,
+      outputPerMTok: 40,
+      cacheReadPerMTok: 0.4,
+    });
+    expect(findPrice("codex", "gpt-6.2-sol")?.outputPerMTok).toBe(10);
     expect(findPrice("codex", "mystery-model")).toBeNull();
     expect(findPrice("fake", "default")).toBeNull();
   });

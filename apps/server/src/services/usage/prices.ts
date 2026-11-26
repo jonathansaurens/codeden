@@ -2,7 +2,7 @@ import type { CostSource, ModelPrice, TokenCounts } from "@codeden/contracts";
 
 const ANTHROPIC = "https://platform.claude.com/docs/en/about-claude/pricing";
 const OPENAI = "https://developers.openai.com/api/docs/pricing";
-const AS_OF = "2026-11-10";
+const AS_OF = "2026-11-26";
 
 type Row = [
   model: string,
@@ -59,6 +59,8 @@ export const BUNDLED_PRICES: ModelPrice[] = [
     ["haiku", "Haiku (latest)", 0.1, 0.5, 0.01, 0.125],
   ]),
   ...table("codex", OPENAI, [
+    ["gpt-6.2-astra", "GPT-6.2 Astra", 8, 40, 0.4, 0],
+    ["gpt-6.2-sol", "GPT-6.2 Sol", 2, 10, 0.1, 0],
     ["gpt-6.1-sol", "GPT-6.1 Sol", 2, 10, 0.1, 0],
     ["gpt-6.1-terra", "GPT-6.1 Terra", 1, 5, 0.05, 0],
     ["gpt-6-sol", "GPT-6 Sol", 2, 10, 0.2, 0],
