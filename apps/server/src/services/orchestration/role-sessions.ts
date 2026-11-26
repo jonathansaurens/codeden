@@ -18,7 +18,13 @@ import type { SessionRepo, StoredStartMeta } from "../sessions/repo";
 import type { SessionService } from "../sessions/session-service";
 import { limitReset, type RoleFallback } from "./role-fallback";
 import { freshRefusal, isOpenRequest } from "./role-fresh";
-import { allRoleSessionIds, findRoleSession, roleSessionRefs } from "./role-queries";
+import { personKey, roleScopeOf } from "./role-keys";
+import {
+  allRoleSessionIds,
+  findRoleSession,
+  orchestratorRefs,
+  roleSessionRefs,
+} from "./role-queries";
 
 export type OrchestrationRole = "orchestrator" | "pm";
 
@@ -48,11 +54,20 @@ const EMPTY_META: StoredStartMeta = {
   queuedBehind: [],
 };
 
-const keyOf = (role: OrchestrationRole, projectId: string | null) => `${role}:${projectId ?? ""}`;
+/**
+ * A role's key: `of` is what it belongs to, the PM's project or the orchestrator's person
+ * (`personKey`: null for the first owner).
+ */
+const keyOf = (role: OrchestrationRole, of: string | null) =>
+  `${role}:${(role === "orchestrator" ? personKey(of) : of) ?? ""}`;
+
+/** `of` as stored: an orchestrator's person key, a PM's project. */
+const scope = (role: OrchestrationRole, of: string | null) =>
+  role === "orchestrator" ? personKey(of) : of;
 
 /**
- * The long-lived role sessions (§8.1): one orchestrator (cwd `<home>/orchestrator/`) and one
- * PM per project (cwd: the project root, read-only). Created lazily on first use; afterwards
+ * The long-lived role sessions (§8.1): one orchestrator per person (cwd `<home>/orchestrator/`,
+ * `docs/machines-teams-and-agents.md` §D.1) and one PM per project (cwd: the project root, read-only). Created lazily on first use; afterwards
  * the same session is reused and, when the runner no longer hosts it, resumed through its
  * provider resume token. Provider, model and effort come from `settings.providers.<role>`.
  *
@@ -96,9 +111,13 @@ export class RoleSessions {
     },
   ) {}
 
-  /** The current role session (the latest that isn't retired), if any. */
-  find(role: OrchestrationRole, projectId: string | null): Session | undefined {
-    return findRoleSession(this.deps.db, role, projectId);
+  /**
+   * The current role session (the latest that isn't retired), if any. Every method takes what
+   * the role belongs to: a PM's project id, or an orchestrator's person (a member id; null or
+   * the first owner's id: the first owner).
+   */
+  find(role: OrchestrationRole, of: string | null): Session | undefined {
+    return findRoleSession(this.deps.db, role, scope(role, of));
   }
 
   /** Ids of every orchestrator and PM session (to keep them out of work digests). */
@@ -106,15 +125,19 @@ export class RoleSessions {
     return allRoleSessionIds(this.deps.db);
   }
 
-  /** Current role sessions, for the snapshot. */
-  refs(): RoleSessionsRef {
-    return roleSessionRefs(this.deps.db);
+  /** Current role sessions as a person sees them (their own orchestrator), for the snapshot. */
+  refs(person: string | null = null): RoleSessionsRef {
+    return roleSessionRefs(this.deps.db, personKey(person));
   }
 
-  /** The current role sessions: the orchestrator's and every project's PM. */
+  /** Every person's current orchestrator session id, by person key (null: the first owner). */
+  orchestrators(): Map<string | null, string> {
+    return orchestratorRefs(this.deps.db);
+  }
+
+  /** The current role sessions: every person's orchestrator and every project's PM. */
   private current(): Session[] {
-    const ref = this.refs();
-    const ids = [ref.orchestrator, ...Object.values(ref.pms)].filter((id) => id !== null);
+    const ids = [...this.orchestrators().values(), ...Object.values(this.refs().pms)];
     return ids.flatMap((id) => this.deps.repo.find(id)?.session ?? []);
   }
 
@@ -209,11 +232,11 @@ export class RoleSessions {
   private async replace(
     existing: Session | undefined,
     role: OrchestrationRole,
-    projectId: string | null,
+    of: string | null,
     always: boolean,
     given: Replacement = MOVED,
   ): Promise<Session | undefined> {
-    const key = keyOf(role, projectId);
+    const key = keyOf(role, of);
     const queued = existing ? await this.retire(existing, given.why) : [];
     if (existing) this.retired.set(key, { session: existing, plan: given });
     if (!always && queued.length === 0) return undefined;
@@ -222,7 +245,7 @@ export class RoleSessions {
     const plan = existing ? given : (replaced?.plan ?? given);
     let created: Session;
     try {
-      created = await this.create(role, projectId, plan);
+      created = await this.create(role, of, plan);
     } catch (error) {
       if (existing && (queued.length > 0 || given.why === "fresh" || given.why === "limit")) {
         this.deps.repo.update(existing.id, (s) => ({ ...s, archivedAt: null }));
@@ -275,18 +298,21 @@ export class RoleSessions {
   private async retireMoved(): Promise<void> {
     const ref = this.refs();
     const roles: [OrchestrationRole, string | null][] = [
-      ["orchestrator", null],
+      ...[...this.orchestrators().keys()].map((p): [OrchestrationRole, string | null] => [
+        "orchestrator",
+        p,
+      ]),
       ...Object.keys(ref.pms).map((id): [OrchestrationRole, string] => ["pm", id]),
     ];
-    for (const [role, projectId] of roles) {
+    for (const [role, of] of roles) {
       try {
-        const key = keyOf(role, projectId);
+        const key = keyOf(role, of);
         // A change of this role's session is under way: it checked the settings itself.
         if (this.changing.has(key)) continue;
-        const session = this.find(role, projectId);
+        const session = this.find(role, of);
         const plan = session && this.retirement(session);
         if (!session || !plan) continue;
-        await this.exclusive(key, () => this.replace(session, role, projectId, false, plan));
+        await this.exclusive(key, () => this.replace(session, role, of, false, plan));
       } catch (error) {
         this.deps.log?.(`role sessions: could not move the ${role} session: ${String(error)}`);
       }
@@ -299,8 +325,8 @@ export class RoleSessions {
    * key: nothing is awaited between looking the session up and taking the key, so concurrent
    * callers (a wake and a message just after the setting changed) all get the same session.
    */
-  async ensure(role: OrchestrationRole, projectId: string | null): Promise<Session> {
-    const key = keyOf(role, projectId);
+  async ensure(role: OrchestrationRole, of: string | null): Promise<Session> {
+    const key = keyOf(role, of);
     for (;;) {
       const pending = this.changing.get(key);
       if (pending) {
@@ -309,11 +335,11 @@ export class RoleSessions {
         if (session) return session;
         continue;
       }
-      const existing = this.find(role, projectId);
+      const existing = this.find(role, of);
       const plan = existing && this.retirement(existing);
       if (existing && !plan) return existing;
       const session = await this.exclusive(key, () =>
-        this.replace(existing, role, projectId, true, plan ?? MOVED),
+        this.replace(existing, role, of, true, plan ?? MOVED),
       );
       if (session) return session;
     }
@@ -327,12 +353,13 @@ export class RoleSessions {
    */
   async fallBack(session: Session, plan: FallbackPlan): Promise<Session | undefined> {
     const role = session.role as OrchestrationRole;
-    const key = keyOf(role, session.projectId);
-    const current = this.find(role, session.projectId);
+    const of = roleScopeOf(session);
+    const key = keyOf(role, of);
+    const current = this.find(role, of);
     if (this.changing.has(key) || current?.id !== session.id) return undefined;
     if (isActiveSession(current) || this.deps.sessions.isDelivering(current.id)) return undefined;
     return this.exclusive(key, () =>
-      this.replace(current, role, session.projectId, true, { why: "limit", ...plan }),
+      this.replace(current, role, of, true, { why: "limit", ...plan }),
     );
   }
 
@@ -347,15 +374,15 @@ export class RoleSessions {
    */
   async startFresh(
     role: OrchestrationRole,
-    projectId: string | null,
+    of: string | null,
     sessionId: string,
   ): Promise<{ session: Session; archived: Session }> {
-    const key = keyOf(role, projectId);
+    const key = keyOf(role, of);
     const name = role === "pm" ? "PM" : "orchestrator";
     if (this.changing.has(key)) {
       throw conflict(`The ${name}'s session is changing right now. Try again in a moment.`);
     }
-    const existing = this.find(role, projectId);
+    const existing = this.find(role, of);
     if (!existing || existing.id !== sessionId) {
       throw conflict(`This is no longer the ${name}'s current conversation`, "not_current");
     }
@@ -367,38 +394,58 @@ export class RoleSessions {
     });
     if (refusal) throw refusal;
     const session = await this.exclusive(key, () =>
-      this.replace(existing, role, projectId, true, { why: "fresh" }),
+      this.replace(existing, role, of, true, { why: "fresh" }),
     );
     if (!session) throw new ServiceError(500, "role_session_missing", "Role session vanished");
     return { session, archived: this.deps.repo.get(existing.id) };
   }
 
+  /**
+   * A member was deleted (§D.1): retire their orchestrator (stopped and archived, its transcript
+   * kept). Nobody else can open it, and nothing starts in its place. What waited in its queue
+   * is dropped with it.
+   */
+  async retirePerson(memberId: string): Promise<void> {
+    const person = personKey(memberId);
+    if (!person) return;
+    const key = keyOf("orchestrator", person);
+    await this.changing.get(key)?.catch(() => undefined);
+    const session = this.find("orchestrator", person);
+    if (!session) return;
+    await this.exclusive(key, async () => {
+      await this.retire(session, "fresh");
+      return undefined;
+    });
+  }
+
   /** Start the role's session: as settings say, or on the plan's provider while it is loaded. */
   private async create(
     role: OrchestrationRole,
-    projectId: string | null,
+    of: string | null,
     plan: Replacement = MOVED,
   ): Promise<Session> {
-    const project = role === "pm" && projectId ? this.deps.projects.get(projectId) : null;
+    const project = role === "pm" && of ? this.deps.projects.get(of) : null;
     if (role === "pm" && !project) {
       throw new ServiceError(400, "project_required", "A PM needs a project");
     }
+    // Each person's orchestrator is their own work (§D.1); the first owner's keeps its old key.
+    const person = role === "orchestrator" ? personKey(of) : null;
     const request = StartSessionRequest.parse({
-      projectId: role === "pm" ? (projectId as string) : null,
+      projectId: role === "pm" ? (of as string) : null,
       role,
       workspace: { mode: "repo_root" },
       purpose: project ? `Project manager for ${project.name}` : "Orchestrator",
-      workKey: project ? `pm:${project.slug}` : "orchestrator:main",
+      workKey: project ? `pm:${project.slug}` : `orchestrator:${person ?? "main"}`,
       startedBy: { kind: "user" },
       title: project ? `PM · ${project.name}` : "Orchestrator",
       autonomy: "auto",
       ...(plan.provider && this.loaded(plan.provider) && { provider: plan.provider }),
     });
-    const result = await this.deps.sessions.start(request);
+    const result = await this.deps.sessions.start(request, person ? { ownerMemberId: person } : {});
     if (result.status !== "started") {
       throw new ServiceError(409, "role_session_conflict", `Could not start the ${role} session`);
     }
-    const session = this.find(role, projectId);
+    const session = this.find(role, of);
     if (!session) throw new ServiceError(500, "role_session_missing", "Role session vanished");
     const { fallback } = plan;
     // Back on the provider it left (its limit reset before the fallback's own): no fallback now.

@@ -1,8 +1,9 @@
-import type { RawEventEnvelope, TerminalQuery } from "@codeden/contracts";
+import type { Member, Notice, RawEventEnvelope, Session, TerminalQuery } from "@codeden/contracts";
 import { roleAtLeast } from "@codeden/contracts";
 import type { AppServices } from "../services/container";
 import { type AuthorizeContext, authorize, canSee, ownsEverything, roleFor } from "./authorize";
 import type { Principal } from "./principal";
+import { isPrivateSession, orchestratorMember } from "./privacy";
 import { projectOfEntity } from "./visibility";
 
 /**
@@ -51,22 +52,65 @@ export function authorizeContext(s: AppServices): AuthorizeContext {
 }
 
 /**
+ * Whether a member may not read this session: someone else's orchestrator (§D.1). Looked up per
+ * session once per socket (a new orchestrator is seen in its `session.created`).
+ */
+function privateSessions(s: AppServices, member: Member): (sessionId: string) => boolean {
+  const known = new Map<string, boolean>();
+  return (id) => {
+    let hidden = known.get(id);
+    if (hidden === undefined) {
+      hidden = isPrivateSession(s.db, member, id);
+      known.set(id, hidden);
+    }
+    return hidden;
+  };
+}
+
+/** An event that names someone else's orchestrator: its session, or a notice for it. */
+function privateEvent(
+  e: RawEventEnvelope,
+  member: Member,
+  hidden: (sessionId: string) => boolean,
+): boolean {
+  if (e.type === "session.created" || e.type === "session.updated") {
+    const session = (e.payload as { session?: Session }).session;
+    if (session?.role === "orchestrator") {
+      return member.kind === "agent" || orchestratorMember(session.ownerMemberId) !== member.id;
+    }
+  }
+  if (e.sessionId && hidden(e.sessionId)) return true;
+  const payload = e.payload as { notice?: Notice; item?: { sessionId?: string | null } } | null;
+  const notice = payload?.notice;
+  if (notice?.target === "orchestrator") {
+    return member.kind === "agent" || orchestratorMember(notice.memberId) !== member.id;
+  }
+  const itemSession = payload?.item?.sessionId;
+  return typeof itemSession === "string" && hidden(itemSession);
+}
+
+/**
  * Which events a member's socket may receive; undefined means all of them (an owner of
- * everything, so single-user installs stream exactly as before).
+ * everything on a single-user install, which streams exactly as before).
  */
 export function eventFilterFor(
   s: AppServices,
   principal: Principal | undefined,
 ): ((e: RawEventEnvelope) => boolean) | undefined {
-  if (!principal || ownsEverything(principal.member)) return undefined;
-  const ctx = authorizeContext(s);
+  if (!principal) return undefined;
   const member = principal.member;
+  const owner = ownsEverything(member);
+  if (owner && !s.members.isTeam()) return undefined;
+  const hidden = privateSessions(s, member);
+  if (owner) return (e) => !privateEvent(e, member, hidden);
+  const ctx = authorizeContext(s);
   const sessionProjects = new Map<string, string | null>();
   const projectOfSession = (id: string) => {
     if (!sessionProjects.has(id)) sessionProjects.set(id, projectOfEntity(s, "session", id));
     return sessionProjects.get(id) ?? null;
   };
   return (e) => {
+    if (privateEvent(e, member, hidden)) return false;
     if (e.sessionId) {
       if (e.type === "session.created" || e.type === "session.updated") {
         const projectId = payloadProject(e.payload);
@@ -91,6 +135,7 @@ export function canWatchSession(
   principal: Principal | undefined,
   sessionId: string,
 ): boolean {
+  if (principal && isPrivateSession(s.db, principal.member, sessionId)) return false;
   if (!principal || ownsEverything(principal.member)) return true;
   return canSee(principal.member, projectOfEntity(s, "session", sessionId), authorizeContext(s));
 }
@@ -99,6 +144,7 @@ export function canWatchSession(
 export type SocketAccess = "full" | "read" | null;
 
 function sessionAccess(s: AppServices, principal: Principal, sessionId: string): SocketAccess {
+  if (isPrivateSession(s.db, principal.member, sessionId)) return null;
   const ctx = authorizeContext(s);
   const target = { kind: "project" as const, projectId: projectOfEntity(s, "session", sessionId) };
   if (authorize(principal, "operator", target, ctx).ok) return "full";
@@ -118,6 +164,7 @@ export function terminalAccess(
   if (!principal) return null;
   // A connected agent works through the member tools, never a shell on the server (§C.3).
   if (principal.member.kind === "agent") return null;
+  if (query.sessionId && isPrivateSession(s.db, principal.member, query.sessionId)) return null;
   if (ownsEverything(principal.member)) return "full";
   if (!query.sessionId) {
     return authorize(principal, "owner", { kind: "server" }, authorizeContext(s)).ok
@@ -137,6 +184,7 @@ export function browserAccess(
   sessionId: string,
 ): SocketAccess {
   if (!principal) return null;
+  if (isPrivateSession(s.db, principal.member, sessionId)) return null;
   if (ownsEverything(principal.member)) return "full";
   const access = sessionAccess(s, principal, sessionId);
   // Connected agents may watch a session's browser, never drive it.

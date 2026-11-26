@@ -13,10 +13,13 @@ import type { Principal } from "./principal";
  * - `global`: work across projects (the orchestrator, reports, bulk changes): the lowest role the
  *   member has anywhere, so nothing about a hidden project reaches it this way.
  * - `project`: one project's work; `projectId: null` is work outside any project (global).
+ * - `own`: the member's own orchestrator (§D.1), which acts for them project by project and
+ *   shows only what they can see: the highest role they have anywhere.
  */
 export type AuthTarget =
   | { kind: "server" }
   | { kind: "global" }
+  | { kind: "own" }
   | { kind: "project"; projectId: string | null };
 
 export type AuthDecision =
@@ -43,6 +46,11 @@ export function roleFor(member: Member, target: AuthTarget, ctx: AuthorizeContex
       return member.disabled ? "none" : member.role;
     case "global":
       return memberGlobalRole(member, ctx.projectIds());
+    case "own":
+      if (member.disabled) return "none";
+      return [member.role, ...Object.values(member.projectRoles)].reduce((a, b) =>
+        roleAtLeast(a, b) ? a : b,
+      );
     case "project":
       return target.projectId === null
         ? memberGlobalRole(member, ctx.projectIds())

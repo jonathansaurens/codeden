@@ -134,6 +134,8 @@ export const sessions = sqliteTable(
     endedAt: text("ended_at"),
     /** Who stopped it (§B.4), when a member did. */
     stoppedBy: json<Actor>("stopped_by"),
+    /** An orchestrator's person (`Session.ownerMemberId`); null: the first owner's. */
+    ownerMemberId: text("owner_member_id"),
     archivedAt: text("archived_at"),
     worktreeRemovedAt: text("worktree_removed_at"),
     /** The session this one was forked from, and the checkpoint its worktree started at. */

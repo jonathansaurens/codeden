@@ -63,7 +63,8 @@ Open invites are listed under **Open invites** with **Revoke**. A used, revoked 
 | **Owner** | Operator, plus administer: settings, projects, automations, machines, members and invites, secrets and provider logins, network access |
 
 - **Per-project roles.** A member's role can be raised or lowered for a project: for example Viewer everywhere and Operator on `helpdesk-ai`. Pick **No access** for a project to hide it: it doesn't appear in their lists, and its pages and sessions answer "not found".
-- **Work across projects** (the orchestrator, usage reports, the factory overview, bulk inbox changes) needs the role on *every* project, so a member with a hidden project can't learn about it through the orchestrator.
+- **Your own orchestrator.** Everyone has an orchestrator of their own (Viewers can read theirs, Operators and Owners also message it). It sees only the projects you can see, and nobody else can read it, Owners included. See [Everyone's own orchestrator](orchestration.md#everyones-own-orchestrator).
+- **Work across projects** (usage reports, the factory overview, bulk inbox changes) needs the role on *every* project, so a member with a hidden project can't learn about it that way.
 - **The orchestrator and the PMs act with your role.** What they do for you is checked against the role of whoever's messages started their turn, so an Operator can't create a project or change an automation by asking the orchestrator or a PM to. See [Whose role they act with](orchestration.md#whose-role-they-act-with).
 - **The server decides.** Every HTTP route, live update, terminal and member tool checks the role on the server; the UI only hides what the server would refuse. A refused action says which role it needs.
 - **The first owner** always stays an enabled owner, and can't be deleted. Other owners can be invited.

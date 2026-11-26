@@ -11,6 +11,7 @@ import {
   WorkKey,
 } from "@codeden/contracts";
 import { z } from "zod";
+import type { AppServices } from "../../../services/container";
 import { defineTool, ToolError } from "../../define";
 import { agentSessionOf, compactSession, compactWork, projectFor } from "../shared/helpers";
 import { describeProviderParam, fallbackProvider } from "../shared/provider-choices";
@@ -116,7 +117,12 @@ export const startSession = defineTool({
       scope: input.scope,
       title: input.title,
       issue,
-      startedBy: { kind: "pm", id: sessionId ?? undefined, reportTo: input.reportTo },
+      startedBy: {
+        kind: "pm",
+        id: sessionId ?? undefined,
+        reportTo: input.reportTo,
+        ...(input.reportTo && reportToMembers(services, sessionId)),
+      },
       parentSessionId: sessionId ?? undefined,
       // The brief is the session's first message: no sender line, but the transcript shows
       // it as the PM's.
@@ -215,3 +221,15 @@ export const stopSession = defineTool({
     };
   },
 });
+
+/**
+ * Who hears about work the PM starts for the orchestrator (§D.3): the people whose orchestrators'
+ * messages are in the PM's turn. None (an older turn): the project's Owners.
+ */
+function reportToMembers(
+  services: AppServices,
+  sessionId: string | null,
+): { reportToMembers: string[] } | undefined {
+  const people = sessionId ? services.orchestration.authority.of(sessionId).orchestrators : [];
+  return people.length > 0 ? { reportToMembers: people } : undefined;
+}

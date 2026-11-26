@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Hotkey, SectionLabel } from "@/components/common/bits";
 import { StatusDot } from "@/components/common/status-dot";
+import { useRoleSession } from "@/components/orchestration/role-chat";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -80,7 +81,8 @@ export function Sidebar({ width, onClose }: { width: number | string; onClose?: 
 
   const inbox = data?.inbox.filter((i) => i.status === "open") ?? [];
   const urgent = inbox.some((i) => i.kind === "approval" || i.kind === "question");
-  const orchestrator = data?.sessions.findLast((s) => s.role === "orchestrator" && !s.archivedAt);
+  // The viewer's own orchestrator (each person has one; the server sends no one else's).
+  const orchestrator = useRoleSession("orchestrator", null);
   const waiting = data?.sessions.filter((s) => s.status === "waiting" && s.role === "agent") ?? [];
   const projectName = (id: string | null) => data?.projects.find((p) => p.id === id)?.name ?? "";
   const { pinned, others } = splitPinned(data?.projects ?? []);

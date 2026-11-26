@@ -55,6 +55,11 @@ const noticeBase = {
    * (`schedule_wakeup`). Absent or null: deliverable at once.
    */
   notBefore: Timestamp.nullable().optional(),
+  /**
+   * On a notice for the orchestrator: whose orchestrator it is for (§D.3), as each person has
+   * their own. Absent: the first owner's.
+   */
+  memberId: Id.optional(),
 };
 
 /** The work a session notice is about. */

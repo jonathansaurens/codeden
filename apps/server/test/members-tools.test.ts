@@ -41,7 +41,6 @@ async function tool(e: MembersEnv, as: Credential, name: string, input: unknown)
 }
 
 const OPERATOR_TOOLS = [
-  "message_orchestrator",
   "message_pm",
   "message_session",
   "start_session",
@@ -109,8 +108,8 @@ describe("member tools (§C.2)", () => {
     expect((await tool(env, bot.as, "stop_session", { sessionId: "s-p1" })).status).toBe(403);
     expect((await tool(env, bot.as, "stop_session", { sessionId: "s-p2" })).status).toBe(404);
     expect((await tool(env, bot.as, "stop_session", { sessionId: "s-p3" })).status).toBe(200);
-    // The orchestrator spans every project, p2 included: refused.
-    expect((await tool(env, bot.as, "message_orchestrator", { text: "hi" })).status).toBe(403);
+    // Connected agents have no orchestrator (§D.1): the tool isn't there.
+    expect((await tool(env, bot.as, "message_orchestrator", { text: "hi" })).status).toBe(404);
     expect((await tool(env, bot.as, "message_pm", { projectId: "p1", text: "hi" })).status).toBe(
       403,
     );

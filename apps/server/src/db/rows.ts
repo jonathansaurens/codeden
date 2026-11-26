@@ -92,12 +92,17 @@ export function sessionToRow(s: Session): Omit<SessionRow, "usage" | "startMeta"
     mcpServers: s.mcpServers ?? null,
     placementNote: s.placementNote ?? null,
     stoppedBy: s.stoppedBy ?? null,
+    ownerMemberId: s.ownerMemberId ?? null,
   };
 }
 
 export function rowToSession(r: SessionRow): Session {
-  const { stoppedBy, ...rest } = r;
-  return Session.parse(stoppedBy ? { ...r } : rest);
+  const { stoppedBy, ownerMemberId, ...rest } = r;
+  return Session.parse({
+    ...rest,
+    ...(stoppedBy ? { stoppedBy } : {}),
+    ...(ownerMemberId ? { ownerMemberId } : {}),
+  });
 }
 
 export function inboxToRow(i: InboxItem): InboxRow {

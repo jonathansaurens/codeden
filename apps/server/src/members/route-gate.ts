@@ -3,8 +3,9 @@ import { matchedRoutes } from "hono/route";
 import type { AppServices } from "../services/container";
 import { type AuthTarget, authorize, ownsEverything } from "./authorize";
 import { principalOf } from "./principal";
+import { isPrivateSession } from "./privacy";
 import { ROUTE_RULES, type RouteRule, type Scope } from "./route-rules";
-import { filterResponse, projectOfEntity } from "./visibility";
+import { filterResponse, projectOfEntity, sessionOfEntity } from "./visibility";
 
 /** Where the API is mounted; route patterns in `ROUTE_RULES` are relative to it. */
 const API_PREFIX = "/api";
@@ -40,6 +41,7 @@ async function targetOf(
 ): Promise<AuthTarget> {
   if (scope === "server") return { kind: "server" };
   if (scope === "global") return { kind: "global" };
+  if (scope === "own") return { kind: "own" };
   if ("param" in scope) {
     const id = params[scope.param];
     return { kind: "project", projectId: id ? projectOfEntity(s, scope.entity, id) : null };
@@ -63,14 +65,36 @@ async function targetOf(
   return { kind: "global" };
 }
 
+/** The session a rule's scope names for this request, if any (inbox items' and files' too). */
+async function sessionNamed(
+  s: AppServices,
+  c: Context,
+  scope: Scope | undefined,
+  params: Record<string, string>,
+): Promise<string | null> {
+  if (!scope || typeof scope === "string") return null;
+  if ("param" in scope) {
+    const id = params[scope.param];
+    return id ? sessionOfEntity(s, scope.entity, id) : null;
+  }
+  if ("body" in scope) {
+    if (scope.body !== "sessionId") return null;
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown> | null;
+    return typeof body?.sessionId === "string" ? body.sessionId : null;
+  }
+  return scope.query.includes("sessionId") ? (c.req.query("sessionId") ?? null) : null;
+}
+
 function deny(c: Context, status: 401 | 403 | 404, code: string, message: string) {
   return c.json({ error: { code, message } }, status);
 }
 
 /**
  * Role checks for every `/api` route (§B.3), from the one table in `route-rules.ts`. Owners of
- * everything (every single-user install) pass straight through, unchanged. For everyone else the
- * route's rule is looked up by the route Hono matched; a route with no rule is refused.
+ * everything pass the role checks; on a single-user install they pass straight through,
+ * unchanged. For everyone else the route's rule is looked up by the route Hono matched; a route
+ * with no rule is refused. On a team, someone else's orchestrator answers as if it didn't exist,
+ * for owners too (§D.1).
  */
 export function routeGate(s: AppServices): MiddlewareHandler {
   const ctx = { projectIds: () => s.projects.list({ includeArchived: true }).map((p) => p.id) };
@@ -81,11 +105,18 @@ export function routeGate(s: AppServices): MiddlewareHandler {
     if (rule?.need === "public") return next();
     // Only public paths get past the security middleware without a principal.
     if (!principal) return deny(c, 401, "unauthorized", "Sign in first.");
-    if (ownsEverything(principal.member)) return next();
+    const owner = ownsEverything(principal.member);
+    if (owner && !s.members.isTeam()) return next();
     if (!route) return next(); // no route: Hono answers 404
-    if (!rule) return deny(c, 403, "forbidden", "Only owners can use this.");
-    if (rule.need !== "member") {
-      const params = paramsOf(route.pattern, c.req.path.slice(API_PREFIX.length));
+    if (!rule) {
+      return owner ? next() : deny(c, 403, "forbidden", "Only owners can use this.");
+    }
+    const params = paramsOf(route.pattern, c.req.path.slice(API_PREFIX.length));
+    const named = await sessionNamed(s, c, rule.scope, params);
+    if (named && isPrivateSession(s.db, principal.member, named)) {
+      return deny(c, 404, "not_found", "Not found");
+    }
+    if (!owner && rule.need !== "member") {
       const target = await targetOf(s, c, rule.scope ?? "server", params);
       const decision = authorize(principal, rule.need, target, ctx);
       if (!decision.ok) return deny(c, decision.status, decision.code, decision.message);

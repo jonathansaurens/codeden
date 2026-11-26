@@ -50,6 +50,14 @@ async function setup() {
   // Otto is an Operator who can't see p2; Wanda is an Owner.
   const otto = await join("Otto", "operator", { p2: "none" });
   const wanda = await join("Wanda", "owner");
+  // Each person's own orchestrator (§D.1); `ORCH` is the first owner's.
+  for (const [id, owner] of [
+    ["orch-otto", otto],
+    ["orch-wanda", wanda],
+  ] as const) {
+    const session = { ...role(id, "orchestrator", null), ownerMemberId: owner };
+    e.server.store.append([{ type: "session.created", sessionId: id, payload: { session } }]);
+  }
   const s = e.server.services;
   /** A turn of a role session, started by a person's message (or automatically, `null`). */
   const turn = (sessionId: string, memberId: string | null, viaOrchestrator = false) => {
@@ -89,13 +97,12 @@ const automation = {
 
 describe("role agents act with their person's role (§D.2)", () => {
   it("refuses an Operator's orchestrator turn what only an Owner may do", async () => {
-    const { otto, turn, call } = await setup();
-    turn(ORCH, otto);
-    const created = await call("orchestrator", ORCH, "create_project", { path: folder() });
+    const { call } = await setup();
+    const created = await call("orchestrator", "orch-otto", "create_project", { path: folder() });
     expect(created.isError).toBe(true);
     expect(created.text).toContain("Only an Owner can add projects");
     expect(created.text).toContain("Otto (an Operator)");
-    const updated = await call("orchestrator", ORCH, "update_project", {
+    const updated = await call("orchestrator", "orch-otto", "update_project", {
       projectId: "p1",
       name: "Renamed",
     });
@@ -104,12 +111,11 @@ describe("role agents act with their person's role (§D.2)", () => {
     expect(env?.server.services.projects.get("p1").name).toBe("p1");
   });
 
-  it("lets an Owner's turn and an automatic one create a project", async () => {
-    const { wanda, turn, call } = await setup();
-    turn(ORCH, wanda);
-    const byOwner = await call("orchestrator", ORCH, "create_project", { path: folder() });
+  it("lets an Owner's orchestrator create a project, also in an automatic turn", async () => {
+    const { turn, call } = await setup();
+    const byOwner = await call("orchestrator", "orch-wanda", "create_project", { path: folder() });
     expect(byOwner.isError, byOwner.text).toBe(false);
-    // Nobody wrote to it: the orchestrator acts for the first owner.
+    // A wake-up started the first owner's orchestrator's turn: it still acts for its person.
     turn(ORCH, null);
     const automatic = await call("orchestrator", ORCH, "create_project", { path: folder() });
     expect(automatic.isError, automatic.text).toBe(false);
@@ -150,21 +156,22 @@ describe("role agents act with their person's role (§D.2)", () => {
   });
 
   it("shows an Operator's orchestrator only the projects they can see", async () => {
-    const { otto, wanda, turn, call } = await setup();
-    turn(ORCH, otto);
-    const listed = await call("orchestrator", ORCH, "list_projects", {});
+    const { call } = await setup();
+    const listed = await call("orchestrator", "orch-otto", "list_projects", {});
     expect(
       (JSON.parse(listed.text) as { projects: { id: string }[] }).projects.map((p) => p.id),
     ).toEqual(["p1"]);
-    const overview = await call("orchestrator", ORCH, "get_overview", {});
+    const overview = await call("orchestrator", "orch-otto", "get_overview", {});
     expect(overview.text).toContain("p1");
     expect(overview.text).not.toContain("p2");
-    const asked = await call("orchestrator", ORCH, "message_pm", { projectId: "p2", text: "hi" });
+    const asked = await call("orchestrator", "orch-otto", "message_pm", {
+      projectId: "p2",
+      text: "hi",
+    });
     expect(asked.isError).toBe(true);
     expect(asked.text).toContain("No project p2");
 
-    turn(ORCH, wanda);
-    const all = await call("orchestrator", ORCH, "list_projects", {});
+    const all = await call("orchestrator", "orch-wanda", "list_projects", {});
     expect(
       (JSON.parse(all.text) as { projects: { id: string }[] }).projects.map((p) => p.id).sort(),
     ).toEqual(["p1", "p2"]);

@@ -225,7 +225,14 @@ export class SessionService {
     };
   }
 
-  async start(req: StartSessionRequest): Promise<StartSessionResponse> {
+  /**
+   * Start a session. `opts.ownerMemberId` is the person an orchestrator session belongs to
+   * (§D.1), set by `RoleSessions` only; absent: the first owner's.
+   */
+  async start(
+    req: StartSessionRequest,
+    opts: { ownerMemberId?: string } = {},
+  ): Promise<StartSessionResponse> {
     // The opening message is the user's when a person (or connected agent) started it (§B.4).
     if (req.input) {
       req = {
@@ -288,6 +295,9 @@ export class SessionService {
       { purpose, workKey, scope, queued },
       machine?.port,
     );
+    if (opts.ownerMemberId && req.role === "orchestrator") {
+      session.ownerMemberId = opts.ownerMemberId;
+    }
     if (machine && this.deps.machines) {
       await assertProviderOnMachine(this.deps.machines, machine, session.provider);
       // Routed to the machine before the workspace is made: it clones there (§A.4).

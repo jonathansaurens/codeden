@@ -23,17 +23,6 @@ const ofInbox = (s: AppServices, id: string) => ({
   projectId: projectOfEntity(s, "inbox", id),
 });
 
-export const messageOrchestrator = defineMemberTool({
-  name: "message_orchestrator",
-  description:
-    "Send the orchestrator (the agent that coordinates every project) a message. It is queued if the orchestrator is busy.",
-  input: z.object({ text: Text }),
-  need: "operator",
-  target: () => ({ kind: "global" }),
-  handler: async ({ text }, { services }) =>
-    services.orchestration.sendToRole("orchestrator", null, input(text), "queue"),
-});
-
 export const messagePm = defineMemberTool({
   name: "message_pm",
   description: "Send a project's project manager (PM) a message. It is queued if the PM is busy.",

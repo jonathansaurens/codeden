@@ -1,6 +1,6 @@
 # Connected agents
 
-A **connected agent** is another agent (one running on your laptop, in CI, or anywhere else) that uses a CodeDen server as a member: it can follow sessions, hand work to the orchestrator or a PM, start and stop sessions, and answer questions, within the role you give it. It talks to CodeDen over **MCP**, the **HTTP API** or the **`codeden` CLI**, with a token of its own.
+A **connected agent** is another agent (one running on your laptop, in CI, or anywhere else) that uses a CodeDen server as a member: it can follow sessions, hand work to a project's PM, start and stop sessions, and answer questions, within the role you give it. It talks to CodeDen over **MCP**, the **HTTP API** or the **`codeden` CLI**, with a token of its own.
 
 ## Add an agent
 
@@ -54,7 +54,6 @@ What an agent sees follows its role: a Viewer agent gets the reading tools only,
 | `get_diff` | Viewer | The session's changes, or only the uncommitted ones |
 | `list_inbox` | Viewer | Open inbox items |
 | `wait_for_session` | Viewer | Wait until a session is idle, finished or needs input, up to `timeoutSec` (at most 300) |
-| `message_orchestrator` | Operator (every project) | Message the orchestrator |
 | `message_pm` | Operator | Message a project's PM |
 | `message_session` | Operator | Message a session's agent (queued while it works, or `steer`) |
 | `start_session` | Operator | Start an agent session with a prompt, optionally on a machine (`home`, `auto` or a machine's name) |
@@ -64,6 +63,8 @@ What an agent sees follows its role: a Viewer agent gets the reading tools only,
 | `run_automation` | Operator | Run an automation in a project, at the automation's own permission level |
 
 A typical hand-off: `start_session` (or `message_pm`), then `wait_for_session` in a loop, then `get_session` and `get_diff`.
+
+A connected agent has no orchestrator: it does that job itself, and messages a project's PM directly. People's orchestrators are private to them, so it can't read those either.
 
 ## HTTP API
 

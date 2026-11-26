@@ -185,6 +185,12 @@ export const Session = z.object({
   endedAt: Timestamp.nullable(),
   /** The member who stopped it (§B.4); absent when CodeDen did, or before members existed. */
   stoppedBy: Actor.optional(),
+  /**
+   * On an orchestrator session: the person it belongs to (`docs/machines-teams-and-agents.md`
+   * §D.1), who alone sees it. Absent: the first owner's, as every orchestrator before people had
+   * their own.
+   */
+  ownerMemberId: Id.optional(),
 });
 export type Session = z.infer<typeof Session>;
 

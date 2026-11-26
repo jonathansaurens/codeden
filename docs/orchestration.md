@@ -1,10 +1,10 @@
 # Orchestration
 
-CodeDen runs three kinds of agent: one **orchestrator**, one **project manager (PM)** per project, and any number of **agent sessions**. They're all ordinary agent sessions on Claude Code, Codex, OpenCode, Cursor or Gemini CLI; what differs is their role, system prompt, working directory and tools.
+CodeDen runs three kinds of agent: an **orchestrator** for each person, one **project manager (PM)** per project, and any number of **agent sessions**. They're all ordinary agent sessions on Claude Code, Codex, OpenCode, Cursor or Gemini CLI; what differs is their role, system prompt, working directory and tools.
 
 | Role | How many | Works in | Can edit code? | Purpose |
 |---|---|---|---|---|
-| Orchestrator | 1 | `~/.codeden/orchestrator/` | No | Your front door: creates and configures projects, routes requests to PMs, summarises status across projects |
+| Orchestrator | 1 per person | `~/.codeden/orchestrator/` | No | Your front door: creates and configures projects, routes requests to PMs, summarises status across projects |
 | Project manager | 1 per project | The project root, read-only | No | Triages issues, plans work, starts and steers agent sessions, reviews results, escalates to you |
 | Agent | Many | Its own worktree and branch | Yes | Does the work: code, tests, PRs, evidence |
 
@@ -33,7 +33,7 @@ Only a change of that role setting moves them. Changing a project's **Default ag
 
 ## Talking to them
 
-- **Orchestrator:** pinned at the top of the sidebar (**Alt+O**). Try "What's going on across my projects?", "Create a project for C:\code\api", or "Ask the storefront PM to look at issue 12".
+- **Orchestrator:** pinned at the top of the sidebar (**Alt+O**). On a server shared by a [team](teams.md), everyone has their own: the sidebar opens yours, and nobody else, not even an Owner, can read it. Try "What's going on across my projects?", "Create a project for C:\code\api", or "Ask the storefront PM to look at issue 12".
 - **PM:** under each project in the sidebar, or **Talk to the PM** on the project page.
 
 Both chats show the role badge, the model, the running cost and a **Read-only** marker in the header.
@@ -127,6 +127,14 @@ On a server shared by a [team](teams.md), the orchestrator and the PMs act with 
 
 A single-user install has one person, the first owner, so nothing changes there.
 
+### Everyone's own orchestrator
+
+Each person on a team has an orchestrator of their own, started by their first message to it. It always acts with its person's role, and its chat, transcript, search results, notices and wake-ups are theirs alone. Connected agents have none: they message PMs directly.
+
+- **Answers come back to whoever asked.** A PM's answer to an `ask_pm`, its reports in a turn an orchestrator's message started, and the results of work it started for an orchestrator (`reportTo: "orchestrator"`) go to that orchestrator only.
+- **Anything else a PM reports** (a `message_orchestrator` nobody asked for, the factory digest) goes to the orchestrator of every Owner of the project. Informational reports never wake one, as before.
+- **When a member is deleted** their orchestrator is retired: stopped and archived, its transcript kept, and nobody else can open it.
+
 ### Asking and answering
 
 - **Defaults first.** Agents, PMs and the orchestrator decide routine details themselves (naming, approach, scope, provider and model), say what they assumed so you can override it, and keep going. They ask you only for destructive or irreversible steps, spending money or credentials, outward-facing actions (publishing, releases, deploys, messages to people), protected areas, or a request that can be read two very different ways.
@@ -136,7 +144,7 @@ A single-user install has one person, the first owner, so nothing changes there.
 - **`ask_user`** (agent or PM → you) puts a question card in the transcript and the inbox. The tool waits up to 4 minutes; if you haven't answered, the agent is told to finish what it can, and your later answer is sent to the session as a new message. This works the same on every provider.
 - **`answer_question`** (PM → agent): a question from work the PM, the orchestrator or an automation started wakes the PM first. When the brief, its notes or the vision settle it, the PM answers it; the agent carries on and the inbox item closes as answered by the PM. Approvals, MCP servers' forms (their answers go to an external tool as data), and questions from sessions you started, always wait for you.
 - **`schedule_wakeup`** (orchestrator or PM → itself): wake me in N minutes, or at a time up to 7 days ahead, with a note. When it's due, CodeDen wakes them with the note and the usual status digest, so they can check on work or try again later without you prompting them. Wake-ups survive restarts; `list_wakeups` and `cancel_wakeup` manage them (at most 20 pending each).
-- **`start_session` with `reportTo: "orchestrator"`** (PM): for work the orchestrator passed on. When the session finishes (calls `finish`) or fails, the orchestrator is woken with the result too, so it can tell you.
+- **`start_session` with `reportTo: "orchestrator"`** (PM): for work the orchestrator passed on. When the session finishes (calls `finish`) or fails, the orchestrator that passed it on is woken with the result too, so it can tell you.
 
 ## The inbox
 

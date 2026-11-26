@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { MessageSender, Session, UserInput } from "@codeden/contracts";
 import type { SessionRepo } from "../sessions/repo";
 import type { NoticeStore } from "./notices";
+import { wakeKey } from "./role-keys";
 import { type WakeResult, WakeScheduler, type WakeSchedulerOptions } from "./wake-scheduler";
 
 /** Who wants a message to go from the orchestrator to a PM. */
@@ -133,7 +134,11 @@ export class LoopGuard {
       accepted: () => {
         this.record(session.id, fromUser);
         if (from !== "user") return;
-        this.clear(session.role === "pm" ? pmKey(session.projectId) : "orchestrator");
+        this.clear(
+          session.role === "pm"
+            ? pmKey(session.projectId)
+            : wakeKey("orchestrator", null, session.ownerMemberId),
+        );
       },
       failed: (mayHaveStarted) => this.record(session.id, mayHaveStarted ? false : previous),
     };

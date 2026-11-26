@@ -1,16 +1,21 @@
 import { z } from "zod";
 import { localDateTime } from "../../services/automations/cron";
+import type { AppServices } from "../../services/container";
 import type { WakeupOwner } from "../../services/orchestration/reminders";
+import { personKey } from "../../services/orchestration/role-keys";
 import { type AnyServerTool, defineTool, ToolError } from "../define";
 
-/** The orchestrator, or the PM of the caller's project. */
+/** The caller's orchestrator (its person's), or the PM of the caller's project. */
 function ownerOf(ctx: {
   role: string;
   projectId: string | null;
   sessionId: string | null;
+  services: AppServices;
 }): WakeupOwner {
   if (ctx.role === "orchestrator") {
-    return { target: "orchestrator", projectId: null, sessionId: ctx.sessionId };
+    const session = ctx.sessionId ? ctx.services.sessionRepo.find(ctx.sessionId)?.session : null;
+    const person = personKey(session?.ownerMemberId);
+    return { target: "orchestrator", projectId: null, sessionId: ctx.sessionId, person };
   }
   if (!ctx.projectId) throw new ToolError("Only the orchestrator or a project's PM has wake-ups");
   return { target: "pm", projectId: ctx.projectId, sessionId: ctx.sessionId };
@@ -55,7 +60,11 @@ export const listWakeups = defineTool({
   input: z.object({}),
   handler: async (_input, ctx) => {
     const owner = ownerOf(ctx);
-    const pending = ctx.services.orchestration.reminders.pending(owner.target, owner.projectId);
+    const pending = ctx.services.orchestration.reminders.pending(
+      owner.target,
+      owner.projectId,
+      owner.person,
+    );
     const timezone = ctx.services.orchestration.timezone();
     return {
       timezone,
@@ -84,7 +93,9 @@ export const cancelWakeup = defineTool({
   input: z.object({ id: z.string().min(1) }),
   handler: async ({ id }, ctx) => {
     const owner = ownerOf(ctx);
-    if (!ctx.services.orchestration.reminders.cancel(owner.target, owner.projectId, id)) {
+    if (
+      !ctx.services.orchestration.reminders.cancel(owner.target, owner.projectId, id, owner.person)
+    ) {
       throw new ToolError(`You have no pending wake-up ${id}. Call list_wakeups for the ids.`);
     }
     return `Wake-up ${id} cancelled.`;

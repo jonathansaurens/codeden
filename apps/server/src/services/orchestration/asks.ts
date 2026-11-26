@@ -1,4 +1,10 @@
-import type { AgentEventOf, Item, RawEventEnvelope, Session } from "@codeden/contracts";
+import {
+  type AgentEventOf,
+  type Item,
+  OWNER_MEMBER_ID,
+  type RawEventEnvelope,
+  type Session,
+} from "@codeden/contracts";
 import { and, desc, eq } from "drizzle-orm";
 import type { Db } from "../../db/client";
 import { items } from "../../db/schema";
@@ -29,6 +35,11 @@ export interface LateReply {
   projectId: string;
   pmSessionId: string;
   text: string;
+  /**
+   * The person whose orchestrator asked (§D.3), when known; their orchestrator alone gets the
+   * answer. Unknown (an ask from before people had their own): the project's Owners'.
+   */
+  askedFor?: string;
 }
 
 export interface PmAsksDeps {
@@ -169,7 +180,18 @@ export class PmAsks {
     if (waiter.resolve) waiter.resolve(text);
     else if (waiter.late) {
       const { askId, projectId, pmSessionId } = waiter;
-      setImmediate(() => this.deps.onLateReply({ askId, projectId, pmSessionId, text }));
+      const asker = waiter.fromSessionId ? this.deps.session(waiter.fromSessionId) : undefined;
+      const askedFor =
+        asker?.role === "orchestrator" ? (asker.ownerMemberId ?? OWNER_MEMBER_ID) : undefined;
+      setImmediate(() =>
+        this.deps.onLateReply({
+          askId,
+          projectId,
+          pmSessionId,
+          text,
+          ...(askedFor && { askedFor }),
+        }),
+      );
     }
   }
 
@@ -181,7 +203,7 @@ export class PmAsks {
     const session = this.deps.session(sessionId);
     if (session?.role !== "pm" || !session.projectId) return;
     const projectId = session.projectId;
-    const askIds = new Set<string>();
+    const askIds = new Map<string, string | undefined>();
     for (const row of this.deps.db
       .select()
       .from(items)
@@ -194,14 +216,17 @@ export class PmAsks {
       )
       .all()) {
       if (row.data.kind !== "user_message") continue;
-      for (const m of row.data.input.text.matchAll(MARKER)) if (m[1]) askIds.add(m[1]);
+      // The question carries the person whose orchestrator asked it (`onBehalfOf`).
+      const askedFor = row.data.input.onBehalfOf;
+      for (const m of row.data.input.text.matchAll(MARKER)) if (m[1]) askIds.set(m[1], askedFor);
     }
-    const untracked = [...askIds].filter((id) => !this.waiters.has(id) && !this.settled.has(id));
+    const untracked = [...askIds].filter(([id]) => !this.waiters.has(id) && !this.settled.has(id));
     if (untracked.length === 0) return;
     const text = this.finalMessage(sessionId, turnId) ?? "(The PM finished without a reply.)";
-    for (const askId of untracked) {
+    for (const [askId, askedFor] of untracked) {
       this.settle(askId);
-      setImmediate(() => this.deps.onLateReply({ askId, projectId, pmSessionId: sessionId, text }));
+      const reply = { askId, projectId, pmSessionId: sessionId, text };
+      setImmediate(() => this.deps.onLateReply({ ...reply, ...(askedFor && { askedFor }) }));
     }
   }
 

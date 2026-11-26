@@ -10,6 +10,7 @@ import {
 } from "@codeden/contracts";
 import type { AppServices } from "../services/container";
 import { type AuthorizeContext, canSee } from "./authorize";
+import { type Privacy, privacyFor } from "./privacy";
 import type { EntityKind, ResponseFilter } from "./route-rules";
 
 /**
@@ -51,9 +52,35 @@ export function projectOfEntity(s: AppServices, entity: EntityKind, id: string):
   }
 }
 
-/** A session's project as the member sees it: role sessions of the orchestrator are global. */
-function sessionVisible(member: Member, session: Session, ctx: AuthorizeContext): boolean {
-  return canSee(member, session.projectId, ctx);
+/** The session an entity is about, if any (someone else's orchestrator is private, §D.1). */
+export function sessionOfEntity(s: AppServices, entity: EntityKind, id: string): string | null {
+  try {
+    switch (entity) {
+      case "session":
+        return id;
+      case "inbox":
+        return s.inbox.find(id)?.sessionId ?? null;
+      case "artifact":
+        return s.artifacts.get(id).sessionId ?? null;
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A session as the member sees it: in a project they can see (the orchestrator's are outside
+ * any), and not someone else's orchestrator (§D.1).
+ */
+function sessionVisible(
+  member: Member,
+  session: Session,
+  ctx: AuthorizeContext,
+  privacy: Privacy,
+): boolean {
+  return !privacy.hidden.has(session.id) && canSee(member, session.projectId, ctx);
 }
 
 function inboxVisible(
@@ -61,20 +88,27 @@ function inboxVisible(
   item: InboxItem,
   ctx: AuthorizeContext,
   sessionProject: (id: string) => string | null,
+  privacy: Privacy,
 ): boolean {
+  if (item.sessionId && privacy.hidden.has(item.sessionId)) return false;
   const projectId = item.projectId ?? (item.sessionId ? sessionProject(item.sessionId) : null);
   return canSee(member, projectId, ctx);
 }
 
-/** The snapshot cut down to the projects the member can see. */
+/**
+ * The snapshot cut down to the projects the member can see, without other people's
+ * orchestrators; `orchestrator` is the member's own (§D.1).
+ */
 export function filterSnapshot(
   snapshot: Snapshot,
   member: Member,
   ctx: AuthorizeContext,
+  privacy: Privacy = { hidden: new Set() },
+  orchestrator: string | null = snapshot.roleSessions?.orchestrator ?? null,
 ): Snapshot {
   const projects = snapshot.projects.filter((p) => canSee(member, p.id, ctx));
   const visible = new Set(projects.map((p) => p.id));
-  const sessions = snapshot.sessions.filter((x) => sessionVisible(member, x, ctx));
+  const sessions = snapshot.sessions.filter((x) => sessionVisible(member, x, ctx, privacy));
   const sessionProject = new Map(sessions.map((x) => [x.id, x.projectId]));
   return {
     ...snapshot,
@@ -84,7 +118,7 @@ export function filterSnapshot(
       Object.entries(snapshot.archivedSessionCounts).filter(([id]) => visible.has(id)),
     ),
     inbox: snapshot.inbox.filter((i) =>
-      inboxVisible(member, i, ctx, (id) => sessionProject.get(id) ?? null),
+      inboxVisible(member, i, ctx, (id) => sessionProject.get(id) ?? null, privacy),
     ),
     automations: snapshot.automations.filter((a) =>
       canSee(member, a.target.type === "project" ? a.target.projectId : null, ctx),
@@ -93,7 +127,7 @@ export function filterSnapshot(
     roleSessions: snapshot.roleSessions
       ? {
           ...snapshot.roleSessions,
-          orchestrator: canSee(member, null, ctx) ? snapshot.roleSessions.orchestrator : null,
+          orchestrator: orchestrator && !privacy.hidden.has(orchestrator) ? orchestrator : null,
           pms: Object.fromEntries(
             Object.entries(snapshot.roleSessions.pms).filter(([id]) => visible.has(id)),
           ),
@@ -112,22 +146,29 @@ export async function filterResponse(
 ): Promise<Response> {
   const body = (await res.clone().json()) as unknown;
   const sessionProject = (id: string) => projectOfEntity(s, "session", id);
+  const privacy = privacyFor(s.db, member);
   let next: unknown;
   switch (filter) {
-    case "snapshot":
-      next = filterSnapshot(body as Snapshot, member, ctx);
+    case "snapshot": {
+      const own = member.kind === "agent" ? null : s.orchestration.roles.refs(member.id);
+      next = filterSnapshot(body as Snapshot, member, ctx, privacy, own?.orchestrator ?? null);
       break;
+    }
     case "projects":
       next = (body as Project[]).filter((p) => canSee(member, p.id, ctx));
       break;
     case "sessions":
-      next = (body as Session[]).filter((x) => sessionVisible(member, x, ctx));
+      next = (body as Session[]).filter((x) => sessionVisible(member, x, ctx, privacy));
       break;
     case "inbox":
-      next = (body as InboxItem[]).filter((i) => inboxVisible(member, i, ctx, sessionProject));
+      next = (body as InboxItem[]).filter((i) =>
+        inboxVisible(member, i, ctx, sessionProject, privacy),
+      );
       break;
     case "inboxCounts": {
-      const open = s.inbox.list().filter((i) => inboxVisible(member, i, ctx, sessionProject));
+      const open = s.inbox
+        .list()
+        .filter((i) => inboxVisible(member, i, ctx, sessionProject, privacy));
       const counts: InboxCounts = { open: open.length, byProject: {}, byKind: {} };
       for (const item of open) {
         if (item.projectId)
@@ -141,7 +182,10 @@ export async function filterResponse(
       const search = body as TranscriptSearchResponse;
       next = {
         ...search,
-        hits: search.hits.filter((h) => canSee(member, sessionProject(h.sessionId), ctx)),
+        hits: search.hits.filter(
+          (h) =>
+            !privacy.hidden.has(h.sessionId) && canSee(member, sessionProject(h.sessionId), ctx),
+        ),
       };
       break;
     }

@@ -5,6 +5,7 @@ import type { AppServices } from "../../services/container";
 import { errorMessage, ServiceError } from "../../services/errors";
 import { authorize } from "../authorize";
 import { type Principal, runAs } from "../principal";
+import { isPrivateSession } from "../privacy";
 import { authorizeContext } from "../sockets";
 import type { AnyMemberTool } from "./define";
 import {
@@ -19,7 +20,6 @@ import {
 import {
   answerApproval,
   answerQuestion,
-  messageOrchestrator,
   messagePm,
   messageSession,
   runAutomation,
@@ -35,7 +35,6 @@ export const MEMBER_TOOLS: readonly AnyMemberTool[] = [
   getSession,
   getDiff,
   listInbox,
-  messageOrchestrator,
   messagePm,
   messageSession,
   startSession,
@@ -118,6 +117,14 @@ export class MemberToolRegistry {
         code: "bad_request",
         message: invalidInputMessage(name, parsed.error, args ?? {}),
       };
+    }
+    // Someone else's orchestrator is private (§D.1): it answers as a session that doesn't exist.
+    const sessionId = (parsed.data as { sessionId?: unknown }).sessionId;
+    if (
+      typeof sessionId === "string" &&
+      isPrivateSession(this.services.db, principal.member, sessionId)
+    ) {
+      return { ok: false, status: 404, code: "not_found", message: `No session ${sessionId}` };
     }
     return runAs(principal, async (): Promise<MemberToolResult> => {
       try {

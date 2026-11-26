@@ -37,6 +37,10 @@ export function sessionRoutes(s: AppServices, installToken: string) {
       .get("/", queryOf(ListSessionsQuery), (c) => c.json(s.sessionRepo.list(c.req.valid("query"))))
       .post("/", jsonBody(StartSessionRequest), async (c) => {
         const req = c.req.valid("json");
+        // Each person's orchestrator is started from their own chat only (§D.1).
+        if (req.role === "orchestrator") {
+          throw badRequest("The orchestrator starts from its chat", "role_session");
+        }
         const result = await s.sessions.start(req);
         if (result.status !== "conflict") {
           // A new version of a request that had an open conflict: that conflict is done.

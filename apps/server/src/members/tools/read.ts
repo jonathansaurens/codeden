@@ -11,6 +11,7 @@ import { lastAssistantMessage, questionItem } from "../../mcp/tools/shared/sessi
 import type { AppServices } from "../../services/container";
 import { sessionSnapshot } from "../../services/sessions/snapshot";
 import { canSee } from "../authorize";
+import { isPrivateSession } from "../privacy";
 import { authorizeContext } from "../sockets";
 import { projectOfEntity } from "../visibility";
 import { defineMemberTool, type MemberToolContext } from "./define";
@@ -96,6 +97,8 @@ export const listSessions = defineMemberTool({
     ctx.services.sessionRepo
       .list({ projectId: input.projectId, status: input.status })
       .filter((s) => visible(ctx, s.projectId))
+      // Orchestrators are their people's own (§D.1); connected agents have none.
+      .filter((s) => !isPrivateSession(ctx.services.db, ctx.principal.member, s.id))
       .slice(0, input.limit ?? 20)
       .map(compactSession),
 });

@@ -15,7 +15,13 @@ import {
 } from "@codeden/contracts";
 import type { Db } from "../../db/client";
 import type { EventStore } from "../../events/store";
-import { type ActingFor, actingCanSee, type MemberLookup, membersOf } from "../../members/acting";
+import {
+  type ActingFor,
+  actingCanSee,
+  actingRole,
+  type MemberLookup,
+  membersOf,
+} from "../../members/acting";
 import type { SettingsStore } from "../../settings-store";
 import type { ArtifactService } from "../artifacts";
 import { isValidTimezone, machineTimezone } from "../automations/cron";
@@ -56,6 +62,7 @@ import {
   UnavailableGithubPort,
 } from "./ports";
 import { Reminders } from "./reminders";
+import { memberOfKey, parseWakeKey, personKey, wakeKey } from "./role-keys";
 import { RoleLimitSwitch } from "./role-limit-switch";
 import { type OrchestrationRole, RoleSessions } from "./role-sessions";
 import { TurnAuthority } from "./turn-authority";
@@ -154,6 +161,7 @@ export class OrchestrationService {
     this.asks = new PmAsks({
       db: deps.db,
       session: (id) => deps.repo.find(id)?.session,
+      // The answer goes back to the orchestrator that asked (§D.3).
       onLateReply: (reply) =>
         this.postToOrchestrator(
           reply.projectId,
@@ -161,6 +169,7 @@ export class OrchestrationService {
           `Answer to your earlier ask_pm question:\n${reply.text}`,
           false,
           `pm.message:ask:${reply.askId}`,
+          reply.askedFor ? [reply.askedFor] : undefined,
         ),
     });
     this.wakes = new WakeScheduler((key) => this.fire(key), {
@@ -247,15 +256,18 @@ export class OrchestrationService {
   // ---------------------------------------------------------------- authority
 
   /**
-   * Who a role session's current turn acts for (§D.2): the people whose messages are in it.
-   * A PM turn only automatic events started is CodeDen's own (`null`, an Owner of the project);
-   * the orchestrator acts for a person always, the first owner when nobody wrote to it.
+   * Who a role session's current turn acts for (§D.2): an orchestrator always its person; a
+   * PM the people whose messages are in the turn, or, when only automatic events started it,
+   * CodeDen itself (`null`, an Owner of the project).
    */
   actingFor(session: Session): ActingFor {
     if (session.role === "agent") return null;
+    // An orchestrator is its person's alone (§D.1): only they write to it.
+    if (session.role === "orchestrator") {
+      return membersOf(this.members(), [memberOfKey(personKey(session.ownerMemberId))]);
+    }
     const { members } = this.authority.of(session.id);
-    if (members.length > 0) return membersOf(this.members(), members);
-    return session.role === "orchestrator" ? [this.members().owner()] : null;
+    return members.length > 0 ? membersOf(this.members(), members) : null;
   }
 
   /** May the people a role session's turn acts for see this project? */
@@ -268,6 +280,19 @@ export class OrchestrationService {
 
   private members(): MemberLookup {
     return this.deps.members;
+  }
+
+  /**
+   * The people (person keys) whose orchestrators hear a project's news that no orchestrator
+   * asked for (§D.3): its Owners. Connected agents have no orchestrator.
+   */
+  private ownersOf(projectId: string | null): (string | null)[] {
+    const target = { kind: "project" as const, projectId };
+    const ctx = { projectIds: () => this.deps.projects.list().map((p) => p.id) };
+    const owners = this.members()
+      .list()
+      .filter((m) => m.kind === "person" && actingRole([m], target, ctx) === "owner");
+    return [...new Set(owners.map((m) => personKey(m.id)))];
   }
 
   // ---------------------------------------------------------------- digest
@@ -287,14 +312,20 @@ export class OrchestrationService {
     });
   }
 
-  /** Every project rolled up; `visible` leaves out the projects someone can't see (§D.1). */
-  overview(visible: (projectId: string) => boolean = () => true): Overview {
+  /**
+   * Every project rolled up, for a person's orchestrator (`person`, a member id; default the
+   * first owner): `visible` leaves out the projects they can't see (§D.1).
+   */
+  overview(
+    visible: (projectId: string) => boolean = () => true,
+    person: string | null = null,
+  ): Overview {
     const projects = this.deps.projects
       .list()
       .filter((p) => visible(p.id))
       .map((p) => this.projectStatus(p.id));
     const pmMessages = this.notices
-      .undelivered("orchestrator", null)
+      .undelivered("orchestrator", null, personKey(person))
       .flatMap((n) =>
         n.type === "pm.message" && n.data.informational && (!n.projectId || visible(n.projectId))
           ? [{ projectId: n.projectId, text: n.data.text, at: n.createdAt }]
@@ -324,7 +355,7 @@ export class OrchestrationService {
       );
     }
     return renderOverviewDigest(
-      { ...this.overview(this.visibleTo(session)), pmMessages: [] },
+      { ...this.overview(this.visibleTo(session), session.ownerMemberId ?? null), pmMessages: [] },
       Date.now(),
       this.timezone(),
     );
@@ -333,17 +364,18 @@ export class OrchestrationService {
   // ---------------------------------------------------------------- messaging
 
   /**
-   * Send a message to the orchestrator or a project's PM, creating the session if needed.
-   * `from` labels the message in the queue tray when it has to wait for a running turn.
+   * Send a message to a person's orchestrator or a project's PM, creating the session if
+   * needed. `of` is the PM's project, or the orchestrator's person (a member id; null: the first
+   * owner). `from` labels the message in the queue tray when it has to wait for a running turn.
    */
   async sendToRole(
     role: OrchestrationRole,
-    projectId: string | null,
+    of: string | null,
     input: UserInput,
     whenBusy: "queue" | "steer" | "reject" = "queue",
     from: QueueSender = "user",
   ): Promise<RoleMessageResponse> {
-    const session = await this.roles.ensure(role, projectId);
+    const session = await this.roles.ensure(role, of);
     const res = await this.deps.sessions.send(session.id, { input, whenBusy }, from);
     return { sessionId: session.id, status: res.status };
   }
@@ -421,39 +453,80 @@ export class OrchestrationService {
     opts: { informational: boolean; replyTo?: string },
   ): "answered" | "queued" | "noted" {
     if (opts.replyTo && this.asks.answer(opts.replyTo, text)) return "answered";
-    this.postToOrchestrator(pm.projectId, pm.id, text, opts.informational);
+    // A report in a turn orchestrators' messages started goes back to them (§D.3).
+    const asked = this.authority.of(pm.id).orchestrators;
+    this.postToOrchestrator(
+      pm.projectId,
+      pm.id,
+      text,
+      opts.informational,
+      undefined,
+      asked.length > 0 ? asked : undefined,
+    );
     return opts.informational ? "noted" : "queued";
   }
 
-  /** Record a notice (other services: GitHub checks, automations); wakes its target when asked. */
+  /**
+   * Record a notice (other services: GitHub checks, automations); wakes its target when asked.
+   * A notice for the orchestrator goes to the person its `memberId` names; without one, to the
+   * orchestrator of every Owner of its project (§D.3), each its own copy (the first owner's
+   * keeps the notice's id). Returns the first owner's copy, or the first one made.
+   */
   notify(draft: NoticeDraft, wake = true): Notice | undefined {
+    if (draft.target !== "orchestrator") return this.record(draft, wake);
+    const people =
+      draft.memberId !== undefined ? [personKey(draft.memberId)] : this.ownersOf(draft.projectId);
+    let first: Notice | undefined;
+    for (const person of people) {
+      const { memberId: _given, ...rest } = draft;
+      const copy = (
+        person ? { ...rest, id: `${draft.id}:${person}`, memberId: person } : rest
+      ) as NoticeDraft;
+      const created = this.record(copy, wake);
+      if (!first || !person) first = created ?? first;
+    }
+    return first;
+  }
+
+  private record(draft: NoticeDraft, wake: boolean): Notice | undefined {
     const created = this.notices.create({ ...draft, wake });
-    if (created && wake) this.wakes.request(wakeKey(created.target, created.projectId));
+    if (created && wake) {
+      this.wakes.request(wakeKey(created.target, created.projectId, created.memberId));
+    }
     return created;
   }
 
   // ---------------------------------------------------------------- internals
 
+  /**
+   * A PM's message to the orchestrators of `people` (member ids), or of the project's Owners
+   * when no orchestrator asked for it (§D.3).
+   */
   private postToOrchestrator(
     projectId: string | null,
     fromSessionId: string,
     text: string,
     informational: boolean,
     id = `pm.message:${randomUUID()}`,
+    people?: readonly string[],
   ): void {
     const name = projectId ? this.projectName(projectId) : "a project";
-    this.notify(
-      {
-        id,
-        type: "pm.message",
-        projectId,
-        target: "orchestrator",
-        sessionId: fromSessionId,
-        title: `${informational ? "Update" : "Message"} from the PM of ${name}`,
-        data: { fromSessionId, text, informational },
-      },
-      !informational,
-    );
+    const draft: NoticeDraft = {
+      id,
+      type: "pm.message",
+      projectId,
+      target: "orchestrator",
+      sessionId: fromSessionId,
+      title: `${informational ? "Update" : "Message"} from the PM of ${name}`,
+      data: { fromSessionId, text, informational },
+    };
+    if (!people) {
+      this.notify(draft, !informational);
+      return;
+    }
+    for (const memberId of new Set(people.map((m) => memberOfKey(personKey(m))))) {
+      this.notify({ ...draft, memberId }, !informational);
+    }
   }
 
   private onConflict(record: ConflictRecord): void {
@@ -477,6 +550,18 @@ export class OrchestrationService {
 
   private onEvents(events: RawEventEnvelope[]): void {
     this.asks.onEvents(events);
+    // A deleted member's orchestrator is retired (§D.1); its transcript stays, unseen.
+    for (const e of events) {
+      if (e.type !== "member.deleted") continue;
+      const { memberId } = e.payload as { memberId: string };
+      void this.roles
+        .retirePerson(memberId)
+        .catch((error) =>
+          this.deps.log?.(
+            `orchestration: retiring ${memberId}'s orchestrator: ${errorMessage(error)}`,
+          ),
+        );
+    }
     const relevant = events.some(
       (e) =>
         e.type === "agent.turn.completed" ||
@@ -515,12 +600,16 @@ export class OrchestrationService {
 
   /** Deliver pending notices to their target with one wake (called by the scheduler). */
   private async fire(key: string): Promise<WakeResult> {
-    const role: OrchestrationRole = key === "orchestrator" ? "orchestrator" : "pm";
-    const projectId = role === "pm" ? key.slice(3) : null;
-    if (this.notices.undelivered(role, projectId).length === 0) return "empty";
+    const target = parseWakeKey(key);
+    const role: OrchestrationRole = target.role;
+    const projectId = target.role === "pm" ? target.projectId : null;
+    const person = target.role === "orchestrator" ? target.person : null;
+    if (this.notices.undelivered(role, projectId, person).length === 0) return "empty";
     // An archived project's sessions take no input (§13): its PM isn't woken, or started.
     if (inArchivedProject(this.deps.projects, { projectId })) return "empty";
-    const session = await this.roles.ensure(role, projectId);
+    // A deleted member's orchestrator is retired (§D.1): nothing wakes it again.
+    if (person && !this.members().find(person)) return "empty";
+    const session = await this.roles.ensure(role, projectId ?? person);
     if (isActiveSession(session)) return "busy";
     await this.deps.sessions.send(
       session.id,
@@ -550,9 +639,4 @@ function relayed(input: UserInput, forUser: boolean, onBehalfOf?: string): UserI
     ...(forUser ? { relayedForUser: true } : {}),
     ...(onBehalfOf ? { onBehalfOf } : {}),
   };
-}
-
-/** Scheduler key of a notice target. */
-export function wakeKey(target: "pm" | "orchestrator", projectId: string | null): string {
-  return target === "orchestrator" ? "orchestrator" : `pm:${projectId ?? ""}`;
 }

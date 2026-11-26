@@ -26,6 +26,8 @@ export type EntityKind =
 export type Scope =
   | "server"
   | "global"
+  /** The member's own orchestrator: the highest role they have anywhere. */
+  | "own"
   /** A path parameter naming an entity. */
   | { param: string; entity: EntityKind }
   /** A JSON body field naming a project or session. */
@@ -220,10 +222,11 @@ export const ROUTE_RULES: Readonly<Record<string, RouteRule>> = {
   "POST /inbox/:id/retry": o(inbox()),
 
   // Orchestrator and PMs
-  "GET /orchestration/orchestrator": v("global"),
-  "POST /orchestration/orchestrator": o("global"),
-  "POST /orchestration/orchestrator/messages": o("global"),
-  "POST /orchestration/orchestrator/start-fresh": o("global"),
+  // Each person's own orchestrator (§D.1): it shows them only the projects they can see.
+  "GET /orchestration/orchestrator": v("own"),
+  "POST /orchestration/orchestrator": o("own"),
+  "POST /orchestration/orchestrator/messages": o("own"),
+  "POST /orchestration/orchestrator/start-fresh": o("own"),
   "GET /orchestration/projects/:projectId/pm": v(project("projectId")),
   "POST /orchestration/projects/:projectId/pm": o(project("projectId")),
   "POST /orchestration/projects/:projectId/pm/messages": o(project("projectId")),
