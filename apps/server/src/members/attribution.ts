@@ -1,4 +1,4 @@
-import type { Actor, AutonomyLevel, UserInput } from "@codeden/contracts";
+import type { Actor, AutonomyLevel, RuntimeResponse, UserInput } from "@codeden/contracts";
 import { forbidden } from "../services/errors";
 import { currentActor, currentPrincipal } from "./principal";
 
@@ -79,4 +79,15 @@ export function assertMayChooseAutonomy(level: AutonomyLevel | undefined): void 
       "approvals_not_allowed",
     );
   }
+}
+
+/**
+ * A response as a person or connected agent sent it over the API: who decided is the server's to
+ * say. An approval is the user's (the member who answered is recorded as `answeredBy`), never the
+ * `policy` or `pm` a client might claim.
+ */
+export function asAnswered(response: RuntimeResponse): RuntimeResponse {
+  if (response.kind !== "approval") return response;
+  const { decidedBy: _claimed, ...rest } = response;
+  return { ...rest, decidedBy: "user" };
 }

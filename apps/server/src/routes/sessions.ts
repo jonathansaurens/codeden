@@ -20,6 +20,7 @@ import {
   UpdateSessionRequest,
 } from "@codeden/contracts";
 import { Hono } from "hono";
+import { asAnswered } from "../members/attribution";
 import type { AppServices } from "../services/container";
 import { badRequest, notFound } from "../services/errors";
 import { clientItemRecord } from "../services/sessions/client-items";
@@ -69,7 +70,9 @@ export function sessionRoutes(s: AppServices, installToken: string) {
         return c.json(body);
       })
       .post("/:id/respond", jsonBody(RespondRequest), async (c) => {
-        await s.sessions.respond(c.req.param("id"), c.req.valid("json"));
+        const req = c.req.valid("json");
+        // Who decided is the server's to say, never the client's.
+        await s.sessions.respond(c.req.param("id"), { ...req, response: asAnswered(req.response) });
         return c.json({ ok: true as const });
       })
       .post("/:id/stop", async (c) => c.json(await s.sessions.stop(c.req.param("id"))))

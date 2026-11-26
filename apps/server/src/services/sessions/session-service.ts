@@ -544,7 +544,11 @@ export class SessionService {
 
   private async answer(id: string, req: RespondRequest, by: Answerer): Promise<void> {
     // Questions asked through CodeDen's ask_user tool are answered here, not by the provider.
-    if (await this.deps.questions.respond(id, req.requestId, req.response, by)) return;
+    if (await this.deps.questions.respond(id, req.requestId, req.response, by)) {
+      // Its item closed with the question: it still records who answered.
+      this.deps.inbox.closeForRequest(id, req.requestId, { decidedBy: by, ...answeredBy() });
+      return;
+    }
     await this.runnerOf(id)
       .request({
         name: "session.respond",
