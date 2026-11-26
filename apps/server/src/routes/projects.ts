@@ -46,8 +46,16 @@ export function projectRoutes(s: AppServices) {
         await s.sandboxes.assertUsable(s.projects.get(c.req.param("id")), patch.execution.backend);
         const machine = patch.execution.machine;
         const named = machine && machine !== "auto" ? machine : null;
-        if (patch.execution.backend === "ssh" && named && !s.machines?.find(named)) {
+        const record = named ? s.machines?.find(named) : undefined;
+        if (patch.execution.backend === "ssh" && named && !record) {
           throw badRequest(`No machine is called ${named}`, "unknown_machine");
+        }
+        // A person's own computer is picked per session, never for a whole project (§D.5).
+        if (patch.execution.backend === "ssh" && record?.ownerMemberId) {
+          throw badRequest(
+            `${s.machines?.computerName(record)} is someone's own computer: choose it when you start a session instead`,
+            "machine_personal",
+          );
         }
       }
       return c.json(s.projects.update(c.req.param("id"), patch));

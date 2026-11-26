@@ -37,13 +37,18 @@ export type LaunchDecision =
   | { kind: "self"; warning: string | null }
   | { kind: "switch"; version: string; entry: string };
 
-/** The data directory, resolved like `resolveHome` in the server (`--home`, CODEDEN_HOME, ~). */
+/**
+ * The data directory, resolved like `resolveHome` in the server (`--home`, CODEDEN_HOME, ~).
+ * `codeden connect` lives in the runner home `~/.codeden-runner` instead (`connect-file.ts`), so
+ * a CodeDen installed on the same computer never switches the version it runs.
+ */
 export function homeFromArgs(args: string[], env: NodeJS.ProcessEnv = process.env): string {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
     if (arg === "--home" && args[i + 1]) return resolve(args[i + 1] as string);
     if (arg.startsWith("--home=")) return resolve(arg.slice("--home=".length));
   }
+  if (args[0] === "connect") return join(homedir(), ".codeden-runner");
   return env.CODEDEN_HOME ? resolve(env.CODEDEN_HOME) : join(homedir(), ".codeden");
 }
 

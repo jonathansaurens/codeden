@@ -91,6 +91,11 @@ export const ROUTE_RULES: Readonly<Record<string, RouteRule>> = {
   "PUT /machines/home/weight": w("server"),
   "PATCH /machines/:id": w("server"),
   "POST /machines/:id/reconnect": w("server"),
+  // Your own computer (§D.5): any person; disconnecting is its person's or an Owner's (checked
+  // by the service).
+  "POST /machines/connect-codes": member(),
+  "GET /machines/connect-codes/:id": member(),
+  "POST /machines/:id/disconnect": member(),
   "DELETE /machines/:id": w("server"),
 
   // GitHub

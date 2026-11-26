@@ -1,9 +1,11 @@
 import {
   AddMachineRequest,
+  type ConnectCodeStatus,
   DEFAULT_MACHINE_WEIGHT,
   type HostResources,
   type Machine,
   type MachineWeight,
+  OWNER_MEMBER_ID,
   type RunnerRecord,
 } from "@codeden/contracts";
 import { ApiRequestError } from "../http";
@@ -35,6 +37,8 @@ function sample(cores: number, totalGib: number, cpu: number, freeGib: number): 
 const vps1: Machine = {
   id: "machine-vps-1",
   label: "vps-1",
+  kind: "ssh",
+  owner: null,
   destination: "deploy@vps-1.example.net",
   weight: 50,
   state: "connected",
@@ -64,7 +68,8 @@ function hostOf(destination: string): string {
 function runnerOf(m: Machine): RunnerRecord {
   return {
     id: m.id,
-    backend: "ssh",
+    backend: m.kind,
+    ownerMemberId: m.owner?.id ?? null,
     home: false,
     runnerId: `runner-${m.label}`,
     sandboxRef: m.destination,
@@ -85,6 +90,7 @@ function runnerOf(m: Machine): RunnerRecord {
  * Machines in the mock: one connected sample (`vps-1`). Adding checks nothing real: a destination
  * containing `fail` is refused as the server refuses an SSH sign-in, anything else connects after
  * a pause. Removing `vps-1` the first time reports unpushed work, so the forced path can be tried.
+ * A pairing code "connects" this computer a few seconds after it is made, as the owner's.
  */
 export function mockMachinesApi(world: MockWorld): MachinesMethods {
   let machines: Machine[] = [structuredClone(vps1)];
@@ -97,9 +103,10 @@ export function mockMachinesApi(world: MockWorld): MachinesMethods {
   };
   const syncRunners = () =>
     world.setRunners([
-      ...world.snapshot.runners.filter((r) => r.backend !== "ssh"),
+      ...world.snapshot.runners.filter((r) => r.backend !== "ssh" && r.backend !== "connected"),
       ...machines.map(runnerOf),
     ]);
+  const codes = new Map<string, { madeAt: number }>();
 
   return {
     machines: () => {
@@ -171,6 +178,53 @@ export function mockMachinesApi(world: MockWorld): MachinesMethods {
           "A clone on vps-1 has commits that aren't pushed (codeden/fix-login). Remove anyway to delete them.",
         );
       }
+      machines = machines.filter((x) => x.id !== id);
+      syncRunners();
+    },
+
+    async createConnectCode(serverUrl) {
+      const id = `code-${codes.size + 1}`;
+      codes.set(id, { madeAt: Date.now() });
+      const code = `cdp_mock${codes.size}`;
+      return later(
+        {
+          id,
+          code,
+          expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+          command: `${COMMAND} connect ${serverUrl} --code ${code}`,
+        },
+        150,
+      );
+    },
+
+    async connectCodeStatus(id): Promise<ConnectCodeStatus> {
+      const code = codes.get(id);
+      if (!code) throw new ApiRequestError(404, "code_not_found", "No such pairing code");
+      if (Date.now() - code.madeAt < 4000) return later({ state: "waiting", machineId: null }, 80);
+      const machineId = "machine-my-laptop";
+      if (!machines.some((m) => m.id === machineId)) {
+        machines = [
+          ...machines,
+          {
+            ...structuredClone(vps1),
+            id: machineId,
+            label: "my-laptop",
+            kind: "connected",
+            owner: { id: OWNER_MEMBER_ID, name: "Owner" },
+            destination: "my-laptop.local",
+            platform: "darwin",
+            arch: "arm64",
+            lastSeenAt: new Date().toISOString(),
+          },
+        ];
+        syncRunners();
+      }
+      return later({ state: "connected", machineId }, 80);
+    },
+
+    async disconnectMachine(id) {
+      find(id);
+      await later(null, 200);
       machines = machines.filter((x) => x.id !== id);
       syncRunners();
     },

@@ -10,7 +10,7 @@ import { copyWithFeedback } from "@/lib/copy";
  * by (the server's own addresses may be private to it, like a container's); else, on the server's
  * machine, a network address, so an agent elsewhere can use it.
  */
-function useAgentServerUrl(): string {
+export function useAgentServerUrl(): string {
   const client = useClient();
   const { data } = useQuery({
     queryKey: ["network-status"],

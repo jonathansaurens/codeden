@@ -13,6 +13,7 @@ import { contentSecurityPolicy } from "./content-security";
 import { type Database, openDatabase } from "./db/client";
 import { EventStore } from "./events/store";
 import type { ExecutionBackend } from "./execution/backend";
+import { ComputerService } from "./execution/connected/computers";
 import { DockerBackend } from "./execution/docker/backend";
 import { SandboxService } from "./execution/sandboxes";
 import { MachineService } from "./execution/ssh/machines";
@@ -32,6 +33,7 @@ import { BROWSER_LOOPBACK_ONLY_PATHS, mountBrowserSockets } from "./realtime/bro
 import { WsHub } from "./realtime/hub";
 import { TerminalBridge } from "./realtime/terminals";
 import { createApi } from "./routes/api";
+import { mountRunnerConnect, RUNNER_CONNECT_PATHS } from "./routes/runner-connect";
 import { findWebDir, mountWeb } from "./routes/static";
 import type { RunnerClient } from "./runner/client";
 import { RunnerHub } from "./runner/hub";
@@ -40,6 +42,7 @@ import {
   type RunnerLaunchConfig,
   type RunnerStartTimeouts,
 } from "./runner/launcher";
+import { IncomingLinks } from "./runner/transport-incoming";
 import { loopbackOrigins, securityMiddleware } from "./security";
 import { type AppServices, createServices, type ServicesOptions } from "./services/container";
 import { type Exec, runTool } from "./services/exec";
@@ -271,8 +274,11 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     command: opts.machines?.command ?? process.env.CODEDEN_MACHINE_COMMAND,
     fake: opts.enableFakeProvider === true,
     connectTimeoutMs: opts.machines?.connectTimeoutMs,
+    member: (id) => services.members.find(id),
     log,
   });
+  // People's own computers link in (§D.5): their sockets go to their machines' clients.
+  const incomingLinks = new IncomingLinks(log);
   const services = createServices({
     db: database.db,
     store,
@@ -282,6 +288,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     runners,
     sandboxes,
     machines,
+    computers: undefined,
     secrets,
     exec: opts.exec,
     locate: opts.locate,
@@ -304,6 +311,17 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     gitBroker: opts.gitBroker,
     log,
   });
+  const computers = new ComputerService({
+    db: database.db,
+    store,
+    hub: runners,
+    machines,
+    links: incomingLinks,
+    member: (id) => services.members.find(id),
+    fake: opts.enableFakeProvider === true,
+    log,
+  });
+  services.computers = computers;
   // Find out early whether `generate_image` can be offered to agents.
   void services.images.refresh();
   services.lifecycle.start();
@@ -363,8 +381,9 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       token: opts.token,
       cookieName: tokenCookie,
       allowedOrigins,
-      // `/mcp` authenticates agents with per-session tokens instead of the install token.
-      publicPaths: new Set(["/api/health", "/mcp"]),
+      // `/mcp` authenticates agents with per-session tokens instead of the install token, and
+      // `codeden connect` its computer with a pairing code or a device key (§D.5).
+      publicPaths: new Set(["/api/health", "/mcp", ...RUNNER_CONNECT_PATHS]),
       // Agents and the desktop app only: never reachable from another device.
       loopbackOnlyPaths: new Set(["/mcp", ...BROWSER_LOOPBACK_ONLY_PATHS]),
       remote: {
@@ -403,6 +422,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       }, 50);
     },
   });
+  mountRunnerConnect(app, { computers: () => services.computers, network, log });
   app.route("/api", api);
   const mcp = createMcpHandler({ tokens: services.mcpTokens, registry: services.tools, log });
   app.all("/mcp", (c) => mcp(c.req.raw));
@@ -494,6 +514,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   // Sessions in containers from before this start continue there, through new links.
   void sandboxes.reattach();
   void machines.reattach();
+  computers.reattach();
 
   async function close(closeOpts: { stopRunner?: boolean } = {}): Promise<void> {
     closing ??= (async () => {

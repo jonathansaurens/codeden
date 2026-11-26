@@ -28,6 +28,7 @@ import { isProcessAlive } from "./lock";
 import { McpLinkServer } from "./mcp-link";
 import type { RunnerTransport, RunnerTransportHandlers } from "./transport";
 import { type ExecLinkConfig, openExecTransport } from "./transport-exec";
+import type { IncomingLinkConfig } from "./transport-incoming";
 import { findOrStartRunner, openLoopbackTransport } from "./transport-loopback";
 import { UntrustedRunnerGuard } from "./untrusted";
 
@@ -51,9 +52,11 @@ export interface RunnerClientOptions {
   untrusted?: boolean;
   /**
    * Reach the runner through an exec link (`codeden runner-link` next to it, `docs/remote-runners.md`
-   * §6). Without one, the `loopback` transport finds it through `lockFile` (and `launch`).
+   * §6), or an incoming one (a computer that links in with `codeden connect`, §D.5: each connect
+   * waits for its next socket). Without one, the `loopback` transport finds it through
+   * `lockFile` (and `launch`).
    */
-  link?: ExecLinkConfig;
+  link?: ExecLinkConfig | IncomingLinkConfig;
   /** The runner's data directory (loopback: where a started runner lives and logs). */
   home: string;
   /** Loopback: the runner's lock file. */
@@ -396,6 +399,12 @@ export class RunnerClient {
     signal: AbortSignal,
   ): Promise<RunnerTransport> {
     const link = this.opts.link;
+    if (link?.kind === "incoming") {
+      // Nothing to dial: wait for the computer to link in (it may be asleep for hours).
+      if (this.current.state === "starting")
+        this.setStatus({ ...this.current, state: "disconnected" });
+      return link.accept(handlers, signal);
+    }
     if (link) return openExecTransport(link, handlers);
     const lock = await findOrStartRunner({
       home: this.opts.home,

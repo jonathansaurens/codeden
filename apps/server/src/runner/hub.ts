@@ -20,6 +20,7 @@ import { type RunnerPort, type RunnerRouter, runnerPort } from "../services/runn
 import { RunnerClient } from "./client";
 import type { RunnerLaunchConfig, RunnerStartTimeouts } from "./launcher";
 import type { ExecLinkConfig } from "./transport-exec";
+import type { IncomingLinkConfig } from "./transport-incoming";
 
 /** A runner to drive: its record and how to reach it. */
 export interface RunnerSpec {
@@ -30,9 +31,10 @@ export interface RunnerSpec {
   home?: boolean;
   /**
    * Reach it through an exec link (`codeden runner-link` started next to it, e.g. with
-   * `docker exec -i`) instead of the loopback WebSocket in its lock file.
+   * `docker exec -i`), or an incoming one (a computer linking in with `codeden connect`),
+   * instead of the loopback WebSocket in its lock file.
    */
-  link?: ExecLinkConfig;
+  link?: ExecLinkConfig | IncomingLinkConfig;
   /** The runner's data directory, and its lock file (`<dir>/runner/runner.json`); loopback. */
   dir: string;
   lockFile: string;
@@ -43,6 +45,8 @@ export interface RunnerSpec {
   label?: string | null;
   /** A machine's preference (`MachineWeight`); kept from the record when omitted. */
   weight?: number | null;
+  /** A personal machine's person (`connected`); kept from the record when omitted. */
+  ownerMemberId?: string | null;
   projectId?: string | null;
   sessionId?: string | null;
   imageVersion?: string | null;
@@ -130,6 +134,8 @@ export class RunnerHub implements RunnerRouter {
       sandboxRef: spec.sandboxRef ?? null,
       label: spec.label !== undefined ? spec.label : (previous?.label ?? null),
       weight: spec.weight !== undefined ? spec.weight : (previous?.weight ?? null),
+      ownerMemberId:
+        spec.ownerMemberId !== undefined ? spec.ownerMemberId : (previous?.ownerMemberId ?? null),
       projectId: spec.projectId ?? null,
       sessionId: spec.sessionId ?? null,
       state: "starting",
@@ -179,14 +185,15 @@ export class RunnerHub implements RunnerRouter {
       log: log && ((message) => log(record.home ? message : `[${spec.id}] ${message}`)),
     });
     // Any runner but the home runner may be a sandbox's, on another disk (§10).
+    const machine = isMachineBackend(record.backend);
     const remote = record.home
       ? undefined
       : () => ({
           platform: client.hostInfo?.platform,
           backend: client.hostInfo?.backend,
           // A machine's runner outlives its sessions and serves many of them (§A.4).
-          projectClones: record.backend === "ssh",
-          ...(record.backend === "ssh" ? { machine: record.label ?? record.id } : {}),
+          projectClones: machine,
+          ...(machine ? { machine: record.label ?? record.id } : {}),
           lastError: client.status.lastError,
         });
     this.entries.set(spec.id, { spec, client, port: runnerPort(() => client, describe, remote) });
@@ -294,10 +301,18 @@ export class RunnerHub implements RunnerRouter {
  */
 export function describeRunner(record: RunnerRecord, withRunnerId = false): string {
   const id = withRunnerId && record.runnerId ? `, runner ${record.runnerId}` : "";
-  if (record.backend === "ssh" && record.label) {
+  if (isMachineBackend(record.backend) && record.label) {
     return id ? `Machine ${record.label} (${id.slice(2)})` : `Machine ${record.label}`;
   }
   return `Runner ${record.id} (${record.backend}${id})`;
+}
+
+/**
+ * A machine's backend: a computer over SSH, or a person's own computer linked in (§D.5). Both
+ * run one long-lived runner serving many sessions, with per-project clones.
+ */
+export function isMachineBackend(backend: RunnerBackendId): boolean {
+  return backend === "ssh" || backend === "connected";
 }
 
 /** A port for a runner the server has no client for: every command fails, naming it. */
@@ -326,6 +341,7 @@ function detailsChanged(a: RunnerRecord, b: RunnerRecord): boolean {
     a.sandboxRef !== b.sandboxRef ||
     a.label !== b.label ||
     a.weight !== b.weight ||
+    a.ownerMemberId !== b.ownerMemberId ||
     a.projectId !== b.projectId ||
     a.sessionId !== b.sessionId ||
     a.imageVersion !== b.imageVersion

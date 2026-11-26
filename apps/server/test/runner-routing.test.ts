@@ -38,6 +38,7 @@ const record = (over: Partial<RunnerRecord>): RunnerRecord => ({
   runnerId: null,
   sandboxRef: null,
   label: null,
+  ownerMemberId: null,
   weight: null,
   projectId: null,
   sessionId: null,

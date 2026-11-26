@@ -74,7 +74,11 @@ export interface SecurityOptions {
   cookieName: () => string;
   /** Exact origins allowed to call the API (scheme://host:port). */
   allowedOrigins: () => ReadonlySet<string>;
-  /** Paths reachable without a token (still subject to Host/Origin checks). */
+  /**
+   * Paths reachable without a token, from other devices too unless they are loopback-only
+   * (still subject to Host/Origin checks, and refused to other devices while network access is
+   * off).
+   */
   publicPaths?: ReadonlySet<string>;
   /** Paths that only this machine may reach, even with network access on (404 to others). */
   loopbackOnlyPaths?: ReadonlySet<string>;
@@ -321,7 +325,13 @@ async function remoteGate(
 ): Promise<Response | undefined> {
   const path = c.req.path;
   if (opts.loopbackOnlyPaths?.has(path)) return c.text("Not found", 404);
-  if (path === "/api/health" || AUTH_PATHS.has(path) || PWA_FILES.has(path)) {
+  // Public paths authenticate themselves (a computer's pairing code or device key, §D.5).
+  if (
+    path === "/api/health" ||
+    opts.publicPaths?.has(path) ||
+    AUTH_PATHS.has(path) ||
+    PWA_FILES.has(path)
+  ) {
     await next();
     return;
   }

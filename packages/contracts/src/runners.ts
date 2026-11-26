@@ -17,9 +17,11 @@ export const HOME_RUNNER_ID = "home";
  * - `docker`: inside a container on this machine (or the Docker host the CLI points at);
  * - `upstash-box`: inside an Upstash Box in the cloud;
  * - `ssh`: on another computer reached over `ssh`, a long-lived runner serving many sessions
- *   (a machine, `docs/machines-teams-and-agents.md` Part A).
+ *   (a machine, `docs/machines-teams-and-agents.md` Part A);
+ * - `connected`: on a person's own computer that links out to the server with `codeden connect`
+ *   (a personal machine, §D.5), otherwise like `ssh`.
  */
-export const RunnerBackendId = z.enum(["local", "docker", "upstash-box", "ssh"]);
+export const RunnerBackendId = z.enum(["local", "docker", "upstash-box", "ssh", "connected"]);
 export type RunnerBackendId = z.infer<typeof RunnerBackendId>;
 
 /**
@@ -70,6 +72,11 @@ export const RunnerRecord = z.object({
    * null means the default, Normal.
    */
   weight: z.int().min(0).max(100).nullable().default(null),
+  /**
+   * The member whose own computer this is (a `connected` machine, §D.5): only they may place
+   * work on it. Null for every other runner.
+   */
+  ownerMemberId: Id.nullable().default(null),
   /** The project and session a sandbox runner serves; null for the home runner. */
   projectId: Id.nullable(),
   sessionId: Id.nullable(),

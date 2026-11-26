@@ -18,6 +18,10 @@ Usage:
   codeden machines list|add|remove
                          Computers CodeDen runs sessions on over SSH
                          (add <ssh-destination> [--name <label>], remove <name> [--force])
+  codeden connect <server> --code <code>
+                         Link this computer to a CodeDen server as one of your machines
+                         (the command from Settings › Machines › Connect this computer;
+                         again later: codeden connect [--detach], codeden connect --stop)
   codeden runner --detach
                          Start a runner in --home unless one runs there (run by the server
                          on a machine)
@@ -52,6 +56,8 @@ export function parseCli(args: string[]) {
       fake: { type: "boolean", default: false },
       name: { type: "string" },
       force: { type: "boolean", default: false },
+      code: { type: "string" },
+      stop: { type: "boolean", default: false },
       version: { type: "boolean", short: "v", default: false },
       help: { type: "boolean", short: "h", default: false },
     },

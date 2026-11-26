@@ -11,6 +11,7 @@ import {
   type Machine,
   type MachineProvider,
   MachineWeight,
+  type Member,
   type ProviderStatus,
   type RunnerRecord,
 } from "@codeden/contracts";
@@ -18,12 +19,14 @@ import { eq } from "drizzle-orm";
 import type { Db } from "../../db/client";
 import { sessions } from "../../db/schema";
 import { listRunnerRecords } from "../../events/runner-projection";
-import type { RunnerHub } from "../../runner/hub";
+import { currentPrincipal } from "../../members/principal";
+import { isMachineBackend, type RunnerHub } from "../../runner/hub";
 import { type ExecLinkConfig, execLink } from "../../runner/transport-exec";
 import { errorMessage, ServiceError } from "../../services/errors";
 import { type Exec, resolveExecutable, runTool } from "../../services/exec";
 import type { RunnerPort } from "../../services/runner-port";
 import { runnerErrorCode } from "../../services/runner-port";
+import { computerName, placementRefusal } from "../connected/access";
 import { CapacityCache } from "../placement/capacity";
 import {
   checkCodeden,
@@ -61,6 +64,8 @@ export interface MachineServiceDeps {
   fake?: boolean;
   /** How long a new machine's runner may take to answer (default 2 minutes). */
   connectTimeoutMs?: number;
+  /** Members by id: a personal computer's owner (§D.5). */
+  member?: (id: string) => Member | undefined;
   log?: (message: string) => void;
 }
 
@@ -112,10 +117,22 @@ export class MachineService {
     return this.deps.sshCommand ?? "ssh";
   }
 
-  /** Every machine record that wasn't removed. */
+  /** Every machine record that wasn't removed: over SSH, and people's own computers (§D.5). */
   records(): RunnerRecord[] {
-    return this.deps.hub.list().filter((r) => r.backend === "ssh" && r.state !== "deleted");
+    return this.deps.hub.list().filter((r) => isMachineBackend(r.backend) && r.state !== "deleted");
   }
+
+  /** Why the work being placed now may not go to `record` (a person's own computer), or null. */
+  placementRefusal(record: RunnerRecord, projectId: string | null): string | null {
+    return placementRefusal(record, projectId, this.member, currentPrincipal());
+  }
+
+  /** "Alice's computer (alice-mbp)", or the label of a machine over SSH. */
+  computerName(record: RunnerRecord): string {
+    return computerName(record, this.member);
+  }
+
+  private readonly member = (id: string) => this.deps.member?.(id);
 
   /** A machine by record id or label (case-insensitive); undefined when there is none. */
   find(idOrLabel: string): RunnerRecord | undefined {
@@ -159,9 +176,14 @@ export class MachineService {
       return { id: p.id, name: p.displayName, ...ready };
     });
     const weight = MachineWeight.safeParse(record.weight);
+    const owner = record.ownerMemberId ? this.deps.member?.(record.ownerMemberId) : undefined;
     return {
       id: record.id,
       label: record.label ?? record.id,
+      kind: record.backend === "connected" ? "connected" : "ssh",
+      owner: record.ownerMemberId
+        ? { id: record.ownerMemberId, name: owner?.name ?? "A former member" }
+        : null,
       destination: record.sandboxRef ?? "",
       weight: weight.success ? weight.data : DEFAULT_MACHINE_WEIGHT,
       state: record.state,
@@ -295,6 +317,13 @@ export class MachineService {
   async reconnect(idOrLabel: string): Promise<Machine> {
     const record = this.require(idOrLabel);
     const label = record.label ?? record.id;
+    if (record.backend !== "ssh") {
+      throw new ServiceError(
+        409,
+        "machine_connected",
+        `${label} links in by itself: disconnect it, then connect it again with codeden connect`,
+      );
+    }
     const live = this.sessionsOn(record).filter((s) => !s.archivedAt).length;
     if (live > 0) {
       throw new ServiceError(
@@ -317,7 +346,8 @@ export class MachineService {
     return this.view(this.deps.hub.setWeight(record.id, weight));
   }
 
-  private require(idOrLabel: string): RunnerRecord {
+  /** A machine by id or label, or a 404. */
+  require(idOrLabel: string): RunnerRecord {
     const record = this.find(idOrLabel);
     if (!record) throw new ServiceError(404, "machine_not_found", `No machine ${idOrLabel}`);
     return record;

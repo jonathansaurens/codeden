@@ -118,8 +118,8 @@ const SECTIONS: {
     id: "machines",
     label: "Machines",
     icon: Server,
+    // Any person may connect their own computer here; the rest is for owners (inside).
     render: () => <MachinesSettings />,
-    owner: true,
   },
   { id: "voice", label: "Voice", icon: Mic, render: () => <VoiceSettings />, owner: true },
   {

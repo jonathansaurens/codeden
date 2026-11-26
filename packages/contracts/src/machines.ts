@@ -6,7 +6,9 @@ import { RunnerRecordState } from "./runners";
  * Machines (`docs/machines-teams-and-agents.md` Part A): other computers CodeDen reaches over the
  * user's own `ssh`, each running a long-lived runner of its own in `~/.codeden-runner`. A machine
  * is a `runners` record with backend `ssh`, its SSH destination in `sandboxRef`, a `label` and a
- * `weight` (its preference for automatic placement).
+ * `weight` (its preference for automatic placement). A person's own computer that links out to
+ * the server (`codeden connect`, §D.5, `machine-connect.ts`) is a machine too, with backend
+ * `connected` and an owner.
  */
 
 /** The machine runner's home, as the remote shell expands it (journal, lock file, clones). */
@@ -134,11 +136,29 @@ export const MachineProvider = z.object({
 });
 export type MachineProvider = z.infer<typeof MachineProvider>;
 
+/**
+ * How the server reaches a machine: `ssh` (it runs `ssh <destination>`, Part A) or `connected`
+ * (a person's own computer links out to the server with `codeden connect`, §D.5).
+ */
+export const MachineKind = z.enum(["ssh", "connected"]);
+export type MachineKind = z.infer<typeof MachineKind>;
+
+/** The person a `connected` machine belongs to. */
+export const MachineOwner = z.object({ id: Id, name: z.string() });
+export type MachineOwner = z.infer<typeof MachineOwner>;
+
 /** One machine, with what its runner last reported (`GET /api/machines`). */
 export const Machine = z.object({
   /** Its runner record's id. */
   id: Id,
   label: MachineLabel,
+  kind: MachineKind.default("ssh"),
+  /**
+   * A personal machine's person (`connected`): shown as "<name>'s computer", and only they may
+   * place work on it. Null for machines over SSH.
+   */
+  owner: MachineOwner.nullable().default(null),
+  /** Its SSH destination; for a connected computer, its host name as it reported it. */
   destination: z.string(),
   weight: MachineWeight,
   state: RunnerRecordState,

@@ -85,7 +85,8 @@ export class AutoPlacement {
       homeCandidate(),
       ...machines
         .records()
-        .filter((r) => r.runnerId)
+        // A person's own computer is never chosen automatically (§D.5).
+        .filter((r) => r.runnerId && !r.ownerMemberId)
         .map(machineCandidate),
     ]);
     const { winner, scored } = choosePlacement(candidates, this.deps.now?.() ?? Date.now());

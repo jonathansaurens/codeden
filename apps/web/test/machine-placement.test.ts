@@ -1,6 +1,13 @@
 import type { Machine, RunnerRecord } from "@codeden/contracts";
 import { describe, expect, it } from "vitest";
-import { capacityLine, sessionMachine, withLiveState } from "@/lib/machines";
+import {
+  capacityLine,
+  machineTitle,
+  pickableMachines,
+  projectMachines,
+  sessionMachine,
+  withLiveState,
+} from "@/lib/machines";
 import {
   buildStartRequest,
   type DraftDefaults,
@@ -62,6 +69,8 @@ describe("withLiveState", () => {
   const machine: Machine = {
     id: "m1",
     label: "vps-1",
+    kind: "ssh",
+    owner: null,
     destination: "me@vps",
     weight: 50,
     state: "connected",
@@ -72,6 +81,7 @@ describe("withLiveState", () => {
     lastSeenAt: "2026-11-25T08:00:00.000Z",
     sessions: 2,
     resources: null,
+    reinstalled: false,
     providers: [],
   };
   const runner = (over: Partial<RunnerRecord>): RunnerRecord => ({
@@ -82,6 +92,7 @@ describe("withLiveState", () => {
     sandboxRef: "me@vps",
     label: "vps-1",
     weight: 50,
+    ownerMemberId: null,
     projectId: null,
     sessionId: null,
     state: "connected",
@@ -118,6 +129,7 @@ describe("the session's machine and capacity", () => {
     sandboxRef: "me@vps",
     label: "vps-1",
     weight: 50,
+    ownerMemberId: null,
     projectId: null,
     sessionId: null,
     state: "connected",
@@ -152,5 +164,21 @@ describe("the session's machine and capacity", () => {
       }),
     ).toBe("4 cores · CPU 23% · 3.1 of 8 GiB free");
     expect(capacityLine(null)).toBe("Capacity unknown");
+  });
+});
+
+describe("people's own computers in pickers (§D.5)", () => {
+  const vps = { id: "m1", label: "vps-1", owner: null };
+  const mine = { id: "c1", label: "my-mbp", owner: { id: "owner", name: "Owner" } };
+  const bobs = { id: "c2", label: "bob-mbp", owner: { id: "m-bob", name: "Bob" } };
+  const all = [vps, mine, bobs] as unknown as Machine[];
+
+  it("offers your own computer for a session, never someone else's, nor any for a project", () => {
+    expect(pickableMachines(all, "owner").map((m) => m.label)).toEqual(["vps-1", "my-mbp"]);
+    expect(pickableMachines(all, "m-bob").map((m) => m.label)).toEqual(["vps-1", "bob-mbp"]);
+    expect(pickableMachines(all, undefined).map((m) => m.label)).toEqual(["vps-1", "my-mbp"]);
+    expect(projectMachines(all).map((m) => m.label)).toEqual(["vps-1"]);
+    expect(machineTitle(bobs)).toBe("Bob's computer");
+    expect(machineTitle(vps)).toBe("vps-1");
   });
 });

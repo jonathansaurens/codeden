@@ -5,7 +5,11 @@ laptop, a desktop under the stairs, several of them. Your main CodeDen keeps the
 orchestrator and the PMs. Each machine runs a CodeDen runner of its own, which serves every
 session placed on it, and its agents use that machine's own provider sign-ins.
 
-The design is in [machines-teams-and-agents.md](machines-teams-and-agents.md) (Part A).
+Your own laptop can be a machine too, even when nothing can reach it over SSH: it links out to
+CodeDen instead ([Connecting your own computer](#connecting-your-own-computer)).
+
+The design is in [machines-teams-and-agents.md](machines-teams-and-agents.md) (Part A, and §D.5
+for your own computer).
 
 ## What a machine needs
 
@@ -82,6 +86,65 @@ Settings › Machines lists each machine with its state, CodeDen version, platfo
   the runner protocol. Nothing listens on a port on either computer. A dropped connection is
   reopened with backoff, and nothing that happened meanwhile is lost.
 
+## Connecting your own computer
+
+A laptop usually can't be reached over SSH: it sleeps, moves between networks and sits behind
+NAT. So it links **out** to CodeDen instead, and runs agent sessions with its own provider
+sign-ins (your own subscriptions), like any machine.
+
+1. In CodeDen, open Settings › Machines › **Connect this computer**. Any person may do this,
+   whatever their role; connected agents can't.
+2. Copy the command it shows and run it in a terminal on the computer to connect (Node.js 24 or
+   newer, git and the agent CLIs you want there, signed in):
+
+   ```sh
+   npx -y codeden@<server version> connect https://codeden.example.com --code cdp_…
+   ```
+
+   The code works once, for 10 minutes. The address is the one your browser used.
+3. The dialog turns to **Connected** when the computer's runner links in. It is now in Settings ›
+   Machines as "*Your name*'s computer", with its state, platform, providers and capacity.
+
+What the command does:
+
+- It trades the code for a **device key**, saved with the server's address in
+  `~/.codeden-runner/connect.json` (readable by you only). Only a hash of the key is kept on the
+  server.
+- It starts a runner in `~/.codeden-runner` (detached, as on a machine over SSH: it keeps
+  running when the link drops) and links it to the server over a WebSocket
+  (`/api/runner-connect`) carrying the runner protocol unchanged. Nothing listens on the laptop.
+- When the link drops (sleep, Wi-Fi to tethering, the server restarting), it links again with
+  backoff (1 s, doubling up to 30 s), and nothing that happened meanwhile is lost.
+
+Later:
+
+```sh
+npx -y codeden@<version> connect            # link again, as paired before
+npx -y codeden@<version> connect --detach   # the same, in the background (log: ~/.codeden-runner/connect.log)
+npx -y codeden@<version> connect --stop     # end the background link; the runner keeps its agents
+```
+
+When the server is upgraded, the link stops and says which version to run `codeden connect` with.
+
+**The server must be reachable from the laptop**: with network access on (Settings › Network) on
+the same network or VPN, or behind HTTPS through a reverse proxy (DESIGN §15.1). The pairing
+and link endpoints need no sign-in, since the code and the key are their credentials; bad codes
+and keys are throttled per address like failed sign-ins, and written to the security log.
+
+**It is yours.** Only you can place work on your computer: your own sessions (pick it in the New
+session form's **Runs on**), and work nobody in particular started (a PM, an automation) only in
+projects where you are an Owner. Other people don't see it in their pickers, the server refuses
+anyone else's session there, Automatic never chooses it, and a project's "Where sessions run"
+can't name it. Like every machine, its runner is untrusted: it only speaks for the sessions
+placed on it.
+
+**Disconnecting it.** Settings › Machines › Disconnect (you, or an Owner). The same rules as
+removing a machine apply: refused while sessions placed there aren't archived, or a clone there
+holds unpushed work (unless forced). Its key is revoked and its link ended, so `codeden connect`
+there stops. To use it again, connect it again from Settings › Machines: with its
+`connect.json` still there, it comes back as the same machine. Deleting a member disconnects
+their computers.
+
 ## Choosing where sessions run
 
 - **Per project:** Project page › Settings › Where sessions run: **This machine** (Home, the
@@ -142,6 +205,9 @@ Each machine, and Home, has a preference (Settings › Machines):
 
 ## Removing a machine
 
+(Your own computer is disconnected instead: see
+[Connecting your own computer](#connecting-your-own-computer).)
+
 Settings › Machines › Remove, or `codeden machines remove vps-1`. CodeDen refuses while sessions
 not archived are placed on the machine, and while a clone there holds work that exists nowhere
 else (uncommitted changes, unpushed commits, stashes). `--force` removes it anyway. The runner
@@ -162,8 +228,9 @@ ssh my-vps npm i -g ./codeden-*.tgz        # now `codeden` on the machine is you
 CODEDEN_MACHINE_COMMAND=codeden codeden   # start your main CodeDen with the override
 ```
 
-`CODEDEN_MACHINE_COMMAND` is read by the server when it starts, applies to every machine, and is
-shown in Settings › Machines ("Machines run CodeDen with: …"). The version check still applies:
+`CODEDEN_MACHINE_COMMAND` is read by the server when it starts, applies to every machine (and to
+the `codeden connect` command Connect this computer shows), and is shown in Settings › Machines
+("Machines run CodeDen with: …"). The version check still applies:
 the machine's build must report the same version as the server.
 
 ## Troubleshooting
@@ -187,3 +254,11 @@ the machine's build must report the same version as the server.
   Manual only), its providers, and its live capacity. A machine that is busier than Home, or
   answers slowly, loses to it.
 - **The runner's log** is `~/.codeden-runner/logs/runner.log` on the machine.
+- **`codeden connect` says the key isn't valid any more**: the computer was disconnected. Pair
+  it again from Settings › Machines › Connect this computer.
+- **`codeden connect` can't reach the server**: open the address it names in a browser on the
+  laptop. From another computer, network access must be on, or the server behind a proxy.
+- **A connected computer is refused as "journal id … belongs to runner …"**: its runner was
+  paired before as another machine and `connect.json` is gone, so CodeDen can't tell it is the
+  same one. Disconnect the old one, then pair again with `--home` pointing at a new folder (or
+  delete `~/.codeden-runner` once nothing there is needed).
