@@ -105,10 +105,17 @@ function sessionAccess(s: AppServices, principal: Principal, sessionId: string):
   return roleAtLeast(roleFor(principal.member, target, ctx), "viewer") ? "read" : null;
 }
 
+/** Does the session run on the home runner, the server itself? */
+function runsOnServer(s: AppServices, sessionId: string): boolean {
+  return s.runners.forSession(sessionId) === s.runner;
+}
+
 /**
- * Terminals (§B.3, open question 3: read-only for Viewers). A session's terminal: Operators
- * drive it, Viewers may attach to one that is open and watch. A terminal outside any session is
- * a shell on the server, so it is the server owners' alone.
+ * Terminals (§B.3, open question 3: read-only for Viewers). A terminal outside any session is a
+ * shell on the server, so it is the server owners' alone. A session's terminal on the home
+ * runner is a shell on the server too: only an Owner of the server drives it, and Operators and
+ * Viewers may attach to one that is open and watch. On a machine (or any other runner, which is
+ * separate from the server and trusted with nothing of it) Operators drive it as well.
  */
 export function terminalAccess(
   s: AppServices,
@@ -124,7 +131,14 @@ export function terminalAccess(
       ? "full"
       : null;
   }
-  const access = sessionAccess(s, principal, query.sessionId);
+  let access = sessionAccess(s, principal, query.sessionId);
+  if (
+    access === "full" &&
+    runsOnServer(s, query.sessionId) &&
+    !authorize(principal, "owner", { kind: "server" }, authorizeContext(s)).ok
+  ) {
+    access = "read";
+  }
   // Watching is attaching to an open terminal; opening one, or running a command, is acting.
   if (access === "read" && (!query.ptyId || query.command)) return null;
   return access;
