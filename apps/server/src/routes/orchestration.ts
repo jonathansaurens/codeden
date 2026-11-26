@@ -11,6 +11,7 @@ import {
   type StartFreshRoleResponse,
 } from "@codeden/contracts";
 import { type Context, Hono } from "hono";
+import { clientInput } from "../members/attribution";
 import { canSee } from "../members/authorize";
 import { principalOf } from "../members/principal";
 import { authorizeContext } from "../members/sockets";
@@ -68,7 +69,7 @@ export function orchestrationRoutes(s: AppServices) {
         const body: RoleMessageResponse = await o.sendToRole(
           "orchestrator",
           personOf(c),
-          input,
+          clientInput(input),
           whenBusy,
         );
         return c.json(body);
@@ -109,7 +110,12 @@ export function orchestrationRoutes(s: AppServices) {
         const projectId = c.req.param("projectId");
         s.projects.get(projectId);
         const { input, whenBusy } = c.req.valid("json");
-        const body: RoleMessageResponse = await o.sendToRole("pm", projectId, input, whenBusy);
+        const body: RoleMessageResponse = await o.sendToRole(
+          "pm",
+          projectId,
+          clientInput(input),
+          whenBusy,
+        );
         return c.json(body);
       })
       .post("/projects/:projectId/pm/start-fresh", jsonBody(StartFreshRoleRequest), async (c) => {
@@ -147,7 +153,12 @@ export function conflictRoutes(s: AppServices) {
   return new Hono()
     .get("/", queryOf(ListConflictsQuery), (c) => c.json(conflicts.list(c.req.valid("query"))))
     .get("/:id", (c) => c.json(conflicts.get(c.req.param("id"))))
-    .post("/:id/resolve", jsonBody(ResolveConflictRequest), async (c) =>
-      c.json(await conflicts.resolve(c.req.param("id"), c.req.valid("json"))),
-    );
+    .post("/:id/resolve", jsonBody(ResolveConflictRequest), async (c) => {
+      const req = c.req.valid("json");
+      // A replacement's message is the caller's own, like `POST /api/sessions`.
+      const start = req.start?.input
+        ? { ...req.start, input: clientInput(req.start.input) }
+        : req.start;
+      return c.json(await conflicts.resolve(c.req.param("id"), { ...req, start }));
+    });
 }

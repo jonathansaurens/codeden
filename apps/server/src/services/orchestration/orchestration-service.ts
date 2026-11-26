@@ -180,7 +180,7 @@ export class OrchestrationService {
           `Answer to your earlier ask_pm question:\n${reply.text}`,
           false,
           `pm.message:ask:${reply.askId}`,
-          reply.askedFor ? [reply.askedFor] : undefined,
+          [reply.askedFor],
         ),
     });
     this.wakes = new WakeScheduler((key) => this.fire(key), {
@@ -230,6 +230,9 @@ export class OrchestrationService {
         // The status digest and undelivered notices, fresh at send time (§8.4, `NoticeDelivery`).
         const decorated = this.delivery.decorate(session, input);
         people.carry(decorated.notices ?? []);
+        // An `ask_pm` question CodeDen hands the PM, directly or held back (§8.3).
+        if (session.role === "pm")
+          this.asks.delivering(session.id, askTexts(input, from, decorated));
         return {
           input: decorated.input,
           delivered: () => {
@@ -436,7 +439,12 @@ export class OrchestrationService {
     const pm = await this.roles.ensure("pm", projectId);
     const forUser = this.loops.humanLed(opts.origin);
     const askId = randomUUID().slice(0, 8);
-    const target = { pmSessionId: pm.id, projectId, fromSessionId: opts.origin.sessionId };
+    const target = {
+      pmSessionId: pm.id,
+      projectId,
+      fromSessionId: opts.origin.sessionId,
+      askedFor: opts.origin.onBehalfOf,
+    };
     const text = [
       `Question from the orchestrator ${askMarker(askId)}:`,
       question,
@@ -648,6 +656,22 @@ export class OrchestrationService {
       return id;
     }
   }
+}
+
+/**
+ * The texts of a delivery to a PM that may carry an `ask_pm` question: the orchestrator's own
+ * message, and the held-back orchestrator messages delivered with it. Never a message a person
+ * or connected agent wrote, whatever markers it contains.
+ */
+function askTexts(
+  input: UserInput,
+  from: QueueSender,
+  decorated: { notices?: readonly Notice[] },
+): string[] {
+  const held = (decorated.notices ?? []).flatMap((n) =>
+    n.type === "orchestrator.message" ? [n.data.text] : [],
+  );
+  return from === "orchestrator" ? [input.text, ...held] : held;
 }
 
 /**

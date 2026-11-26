@@ -3,6 +3,16 @@ import { forbidden } from "../services/errors";
 import { currentActor, currentPrincipal } from "./principal";
 
 /**
+ * A message as a person or connected agent sent it, over a route or a member tool: its text and
+ * attachments only. Every other `UserInput` field says who wrote it or what it is for (`from`,
+ * `author`, `onBehalfOf`, `relayedForUser`, `checksRound`, and any added later) and is CodeDen's
+ * alone to set, so whatever a client claims there is dropped.
+ */
+export function clientInput(input: UserInput): UserInput {
+  return { text: input.text, attachments: input.attachments };
+}
+
+/**
  * A message's input with its author (§B.4): the member whose request sends it, when a person or
  * connected agent wrote it (`from: "user"` or `"member"`). An `author` the client sent is never
  * kept.

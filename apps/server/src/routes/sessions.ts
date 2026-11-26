@@ -20,7 +20,7 @@ import {
   UpdateSessionRequest,
 } from "@codeden/contracts";
 import { Hono } from "hono";
-import { asAnswered } from "../members/attribution";
+import { asAnswered, clientInput } from "../members/attribution";
 import type { AppServices } from "../services/container";
 import { badRequest, notFound } from "../services/errors";
 import { clientItemRecord } from "../services/sessions/client-items";
@@ -37,7 +37,8 @@ export function sessionRoutes(s: AppServices, installToken: string) {
     new Hono()
       .get("/", queryOf(ListSessionsQuery), (c) => c.json(s.sessionRepo.list(c.req.valid("query"))))
       .post("/", jsonBody(StartSessionRequest), async (c) => {
-        const req = c.req.valid("json");
+        const sent = c.req.valid("json");
+        const req = { ...sent, ...(sent.input && { input: clientInput(sent.input) }) };
         // Each person's orchestrator is started from their own chat only (§D.1).
         if (req.role === "orchestrator") {
           throw badRequest("The orchestrator starts from its chat", "role_session");
@@ -57,11 +58,14 @@ export function sessionRoutes(s: AppServices, installToken: string) {
       .patch("/:id", jsonBody(UpdateSessionRequest), async (c) =>
         c.json(await s.sessions.update(c.req.param("id"), c.req.valid("json"))),
       )
-      .post("/:id/messages", jsonBody(SendMessageRequest), async (c) =>
-        c.json(await s.sessions.send(c.req.param("id"), c.req.valid("json"))),
-      )
+      .post("/:id/messages", jsonBody(SendMessageRequest), async (c) => {
+        const req = c.req.valid("json");
+        return c.json(
+          await s.sessions.send(c.req.param("id"), { ...req, input: clientInput(req.input) }),
+        );
+      })
       .post("/:id/steer", jsonBody(SteerRequest), async (c) => {
-        await s.sessions.steer(c.req.param("id"), c.req.valid("json").input);
+        await s.sessions.steer(c.req.param("id"), clientInput(c.req.valid("json").input));
         return c.json({ ok: true as const });
       })
       .post("/:id/interrupt", async (c) => {
