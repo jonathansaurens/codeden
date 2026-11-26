@@ -187,8 +187,10 @@ export class RolePlacement {
     if (role === "pm" && project?.kind !== "github") {
       return `${name} can't run the PM: the project isn't on GitHub`;
     }
+    // A computer paired but never linked yet (§D.5) is offered, as not connected.
+    if (!record.runnerId) return `${name} hasn't connected yet`;
     const port = this.deps.machines?.port(record);
-    if (!port?.isConnected() || !record.runnerId) return `${name} is offline`;
+    if (!port?.isConnected()) return `${name} is offline`;
     try {
       const provider = await this.providerOn(role, project, record, port);
       if (typeof provider !== "string") return provider.problem;

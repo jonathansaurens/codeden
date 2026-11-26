@@ -25,12 +25,13 @@ export function choiceHint(choice: RunsOnChoice): string {
  * "Runs on…" in the orchestrator chat's ⋯ menu (`docs/machines-teams-and-agents.md` §D.4):
  * the server or a machine the person may use, each with whether it can take turns now. Picking
  * one moves the conversation once no turn runs; the chat then says where it went. Only on the
- * person's own, current orchestrator.
+ * person's own, current orchestrator, or before it has started (no `session`): the choice is then
+ * where its first conversation starts.
  */
-export function RunsOnMenu({ session }: { session: Session }) {
+export function RunsOnMenu({ session }: { session?: Session }) {
   const client = useClient();
   const queryClient = useQueryClient();
-  const enabled = session.role === "orchestrator" && !session.archivedAt;
+  const enabled = !session || (session.role === "orchestrator" && !session.archivedAt);
   const runsOn = useQuery({
     queryKey: runsOnKey,
     queryFn: () => client.orchestration.runsOn(),
@@ -44,7 +45,9 @@ export function RunsOnMenu({ session }: { session: Session }) {
       queryClient.setQueryData(runsOnKey, data);
       const label = data.choices.find((c) => c.id === data.runsOn)?.label ?? data.runsOn;
       toast(`The orchestrator will run on ${label === "The server" ? "the server" : label}`, {
-        description: "It moves once no turn is running; your next message starts it there.",
+        description: session
+          ? "It moves once no turn is running; your next message starts it there."
+          : "Your first message starts it there.",
       });
     },
     onError: (error) =>

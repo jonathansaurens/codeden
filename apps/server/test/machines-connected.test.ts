@@ -214,6 +214,28 @@ describe("pairing a computer", () => {
     expect((await computer.pair(server.url, "cdp_nonsense")).status).toBe(401);
   });
 
+  it("offers a computer that has never linked as a place for its person's orchestrator", async () => {
+    const bob = await operator("Bob");
+    const code = await remote(bob.cookie, "POST", "/machines/connect-codes", {
+      serverUrl: server.url,
+    });
+    expect(code.status, JSON.stringify(code.body)).toBe(201);
+    const pair = await paired(await computer.pair(server.url, code.body.code));
+    const runsOn = await remote(bob.cookie, "GET", "/orchestration/orchestrator/runs-on");
+    const choice = (runsOn.body.choices as Json[]).find((c) => c.id === pair.machineId);
+    expect(choice, JSON.stringify(runsOn.body)).toMatchObject({
+      ready: false,
+      reason: expect.stringContaining("hasn't connected yet"),
+    });
+    const set = await remote(bob.cookie, "PUT", "/orchestration/orchestrator/runs-on", {
+      runsOn: pair.machineId,
+    });
+    expect(set.status).toBe(200);
+    // Not offered to anyone else.
+    const mine = await api("GET", "/orchestration/orchestrator/runs-on");
+    expect((mine.body.choices as Json[]).map((c) => c.id)).not.toContain(pair.machineId);
+  });
+
   it("is something only a person does", async () => {
     const agent = await api("POST", "/members/agents", { name: "Helper", role: "operator" });
     const res = await fetch(`${server.url}/api/machines/connect-codes`, {
@@ -326,8 +348,9 @@ describe("a connected computer", () => {
     const pair = await connectComputer();
     const bob = await operator("Bob");
 
+    // Someone else's own computer isn't listed for him at all.
     const listed = await remote(bob.cookie, "GET", "/machines");
-    expect(listed.body.machines[0]).toMatchObject({ owner: { id: "owner" } });
+    expect(listed.body.machines.map((m: Json) => m.id)).not.toContain(pair.machineId);
     const refused = await startSession("on someone else's laptop", bob.cookie);
     expect(refused.status).toBe(403);
     expect(refused.body.error.code).toBe("machine_not_yours");
