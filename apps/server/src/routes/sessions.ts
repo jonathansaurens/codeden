@@ -20,7 +20,7 @@ import {
   UpdateSessionRequest,
 } from "@codeden/contracts";
 import { Hono } from "hono";
-import { asAnswered, clientInput } from "../members/attribution";
+import { asAnswered, asPersonStart, clientInput } from "../members/attribution";
 import type { AppServices } from "../services/container";
 import { badRequest, notFound } from "../services/errors";
 import { clientItemRecord } from "../services/sessions/client-items";
@@ -37,12 +37,9 @@ export function sessionRoutes(s: AppServices, installToken: string) {
     new Hono()
       .get("/", queryOf(ListSessionsQuery), (c) => c.json(s.sessionRepo.list(c.req.valid("query"))))
       .post("/", jsonBody(StartSessionRequest), async (c) => {
-        const sent = c.req.valid("json");
-        const req = { ...sent, ...(sent.input && { input: clientInput(sent.input) }) };
-        // Each person's orchestrator is started from their own chat only (§D.1).
-        if (req.role === "orchestrator") {
-          throw badRequest("The orchestrator starts from its chat", "role_session");
-        }
+        // An agent session the caller starts: the orchestrator and PMs start from their chats
+        // (§D.1), and who started it is the server's to say.
+        const req = asPersonStart(c.req.valid("json"));
         const result = await s.sessions.start(req);
         if (result.status !== "conflict") {
           // A new version of a request that had an open conflict: that conflict is done.

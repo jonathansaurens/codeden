@@ -1,5 +1,12 @@
-import type { Actor, AutonomyLevel, RuntimeResponse, UserInput } from "@codeden/contracts";
-import { forbidden } from "../services/errors";
+import type {
+  Actor,
+  AutonomyLevel,
+  RuntimeResponse,
+  StartedBy,
+  StartSessionRequest,
+  UserInput,
+} from "@codeden/contracts";
+import { badRequest, forbidden } from "../services/errors";
 import { currentActor, currentPrincipal } from "./principal";
 
 /**
@@ -10,6 +17,30 @@ import { currentActor, currentPrincipal } from "./principal";
  */
 export function clientInput(input: UserInput): UserInput {
   return { text: input.text, attachments: input.attachments };
+}
+
+/** Who started work a person or connected agent started: the user, with their member id. */
+export function personStarter(): StartedBy {
+  const actor = currentActor();
+  return actor ? { kind: "user", id: actor.memberId } : { kind: "user" };
+}
+
+/**
+ * A start request as a person or connected agent sent it (`POST /api/sessions`, a conflict's
+ * replacement, the `start_session` member tool): an agent session they start. The PM's and the
+ * orchestrator's own sessions start from their chats, and who started the work (`startedBy`),
+ * its parent session and the message's server-only fields are CodeDen's to say: work that looked
+ * like a PM's or the orchestrator's would wake the PM for an automatic turn.
+ */
+export function asPersonStart(req: StartSessionRequest): StartSessionRequest {
+  if (req.role !== "agent") {
+    throw badRequest(
+      "Only agent sessions start here: the orchestrator and PMs start from their chats",
+      "role_session",
+    );
+  }
+  const { parentSessionId: _parent, startedBy: _claimed, input, ...rest } = req;
+  return { ...rest, startedBy: personStarter(), ...(input && { input: clientInput(input) }) };
 }
 
 /**

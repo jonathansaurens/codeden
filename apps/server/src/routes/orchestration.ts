@@ -11,7 +11,7 @@ import {
   type StartFreshRoleResponse,
 } from "@codeden/contracts";
 import { type Context, Hono } from "hono";
-import { clientInput } from "../members/attribution";
+import { asPersonStart, clientInput } from "../members/attribution";
 import { canSee } from "../members/authorize";
 import { principalOf } from "../members/principal";
 import { authorizeContext } from "../members/sockets";
@@ -155,10 +155,8 @@ export function conflictRoutes(s: AppServices) {
     .get("/:id", (c) => c.json(conflicts.get(c.req.param("id"))))
     .post("/:id/resolve", jsonBody(ResolveConflictRequest), async (c) => {
       const req = c.req.valid("json");
-      // A replacement's message is the caller's own, like `POST /api/sessions`.
-      const start = req.start?.input
-        ? { ...req.start, input: clientInput(req.start.input) }
-        : req.start;
+      // A replacement is the caller's own start, like `POST /api/sessions`.
+      const start = req.start && asPersonStart(req.start);
       return c.json(await conflicts.resolve(c.req.param("id"), { ...req, start }));
     });
 }

@@ -6,6 +6,7 @@ import type {
   Session,
   WorkspaceRequest,
 } from "@codeden/contracts";
+import { personStarter } from "../../members/attribution";
 import { badRequest, conflict, type ServiceError } from "../errors";
 import type { ProjectService } from "../projects/project-service";
 import { type RunnerPort, toServiceError } from "../runner-port";
@@ -209,7 +210,7 @@ export function forkPlan(
     projectId: project.id,
     role: "agent",
     parentSessionId: null,
-    startedBy: { kind: "user" },
+    startedBy: personStarter(),
     purpose: source.purpose,
     workKey: source.workKey,
     scope: source.scope,

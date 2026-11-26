@@ -4,6 +4,7 @@ import { compactSession } from "../../mcp/tools/shared/helpers";
 import { questionItem } from "../../mcp/tools/shared/session-items";
 import type { AppServices } from "../../services/container";
 import { badRequest, forbidden } from "../../services/errors";
+import { asPersonStart } from "../attribution";
 import { projectOfEntity } from "../visibility";
 import { defineMemberTool } from "./define";
 
@@ -66,14 +67,16 @@ export const startSession = defineMemberTool({
   need: "operator",
   target: (i) => ({ kind: "project", projectId: i.projectId }),
   handler: async (i, { services }) => {
-    const req = StartSessionRequest.parse({
-      projectId: i.projectId,
-      input: input(i.prompt),
-      ...(i.purpose ? { purpose: i.purpose } : {}),
-      ...(i.provider ? { provider: i.provider } : {}),
-      ...(i.model ? { model: i.model } : {}),
-      ...(i.machine ? { machine: i.machine } : {}),
-    });
+    const req = asPersonStart(
+      StartSessionRequest.parse({
+        projectId: i.projectId,
+        input: input(i.prompt),
+        ...(i.purpose ? { purpose: i.purpose } : {}),
+        ...(i.provider ? { provider: i.provider } : {}),
+        ...(i.model ? { model: i.model } : {}),
+        ...(i.machine ? { machine: i.machine } : {}),
+      }),
+    );
     const result = await services.sessions.start(req);
     if (result.status !== "conflict") {
       services.orchestration.conflicts.closeReplaced(req, result);

@@ -6,6 +6,7 @@ import type {
   Session,
   UserInput,
 } from "@codeden/contracts";
+import { personStarter } from "../../members/attribution";
 import { badRequest, conflict, type ServiceError } from "../errors";
 import type { ProjectService } from "../projects/project-service";
 import { type RunnerPort, toServiceError } from "../runner-port";
@@ -168,7 +169,7 @@ export function reviewPlan(
     projectId: project.id,
     role: "agent",
     parentSessionId: null,
-    startedBy: { kind: "user" },
+    startedBy: personStarter(),
     purpose: source.purpose,
     workKey: `review:${source.id}`,
     scope: source.scope,

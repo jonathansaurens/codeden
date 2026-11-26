@@ -123,7 +123,7 @@ Factory projects add a few more (see [The software factory and the dark factory]
 
 On a server shared by a [team](teams.md), the orchestrator and the PMs act with the role of the people they work for, checked by the same rules as those people's own requests:
 
-- **A turn acts for the people whose messages started it** (and anyone who steered it): the lowest role among them counts. A message the orchestrator sends a PM counts as from the person the orchestrator works for. A turn only automatic events started (notices, wake-ups, automations, GitHub) acts as an Owner of the project, as before.
+- **A turn acts for the people whose messages started it** (and anyone who steered it): the lowest role among them counts. A message the orchestrator sends a PM counts as from the person the orchestrator works for. A turn only automatic events started (notices, wake-ups, automations, GitHub) acts as an Owner of the project, as before; a notice about a session a person started counts as from that person.
 - **What needs which role:** adding and changing projects and creating, changing, pausing, resuming or skipping automations need an Owner; messaging a PM, starting, messaging and stopping sessions, running automations, answering questions, filing and triaging issues and the factory's decisions need an Operator on the project. A refused call tells the agent which role it needs ("Only an Owner can change automations; this turn acts for Otto (an Operator)"), and it tells you instead of trying again.
 - **What the orchestrator sees** leaves out the projects hidden from its person: its project list, overview, inbox and status digest.
 

@@ -60,15 +60,31 @@ export function peopleOf(
   }
 }
 
-/** The people held-back orchestrator messages delivered with a turn speak for. */
+/**
+ * The people the notices delivered with a turn speak for: held-back orchestrator messages count
+ * as their person's, and a notice about a session a person (or connected agent) started as that
+ * member's (`startedBy.id`; none recorded: the first owner), so text from their work never makes
+ * a turn act with more than their role.
+ */
 function peopleOfNotices(notices: readonly Notice[]): TurnPeople {
   let people = AUTOMATIC;
   for (const n of notices) {
-    if (n.type !== "orchestrator.message") continue;
-    people = merge(people, peopleOf({ onBehalfOf: n.data.onBehalfOf }, "orchestrator"));
+    if (n.type === "orchestrator.message") {
+      people = merge(people, peopleOf({ onBehalfOf: n.data.onBehalfOf }, "orchestrator"));
+      continue;
+    }
+    // A session's starter, or who asked for work that met running work (a conflict).
+    const data = n.data as { startedBy?: Starter; requestedBy?: Starter | string | null };
+    const startedBy =
+      data.startedBy ?? (typeof data.requestedBy === "object" ? data.requestedBy : undefined);
+    if (startedBy?.kind === "user") {
+      people = merge(people, { members: [startedBy.id ?? OWNER_MEMBER_ID], orchestrators: [] });
+    }
   }
   return people;
 }
+
+type Starter = { kind?: string; id?: string };
 
 /** What the delivery of a role session's turn reports back (`TurnAuthority.begin`). */
 export interface TurnStart {
