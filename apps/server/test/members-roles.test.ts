@@ -271,6 +271,12 @@ describe("roles on the server (§B.3)", () => {
     expect(await status("/ws/browser?sessionId=s-p1&open=1")).toBe(101);
   });
 
+  it("answers 404 for resuming the factory of a project that doesn't exist", async () => {
+    env = await startMembersEnv();
+    const res = await env.local("/api/projects/nope/factory/resume", jsonInit("POST", {}));
+    expect(res.status).toBe(404);
+  });
+
   it("changes nothing for the owner of a single-user install", async () => {
     env = await startMembersEnv();
     seedProjects(env.server, ["p1"]);
