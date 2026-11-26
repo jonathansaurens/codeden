@@ -139,6 +139,26 @@ describe("roles on the server (§B.3)", () => {
     expect((await env.remote("/api/usage/report", { as: ana })).status).toBe(403);
   });
 
+  it("refuses per-project roles for projects that don't exist", async () => {
+    env = await startMembersEnv();
+    seedProjects(env.server, ["p1"]);
+    const bad = { projectRoles: { p1: "operator", nope: "viewer" } };
+    for (const [method, path, body] of [
+      ["POST", "/api/members/invites", { role: "viewer", ...bad }],
+      ["POST", "/api/members/agents", { name: "bot", role: "viewer", ...bad }],
+      ["PATCH", "/api/members/owner", bad],
+    ] as const) {
+      const res = await env.local(path, jsonInit(method, body));
+      expect(res.status, `${method} ${path}`).toBe(400);
+      expect(await res.json()).toMatchObject({ error: { code: "unknown_project" } });
+    }
+    const ok = await env.local(
+      "/api/members/invites",
+      jsonInit("POST", { role: "viewer", projectRoles: { p1: "operator" } }),
+    );
+    expect(ok.status).toBe(200);
+  });
+
   it("filters the live event stream and transcripts to visible projects", async () => {
     env = await startMembersEnv();
     seedProjects(env.server, ["p1", "p2"]);

@@ -25,7 +25,7 @@ import { type Principal, principalOf } from "../members/principal";
 import type { NetworkAccess } from "../network/access";
 import { requestSocket } from "../security";
 import type { AppServices } from "../services/container";
-import { forbidden, notFound, ServiceError } from "../services/errors";
+import { badRequest, forbidden, notFound, ServiceError } from "../services/errors";
 import { jsonBody } from "./validate";
 
 /** Events in the activity list, and the rows read to find them (stops hide among updates). */
@@ -43,6 +43,17 @@ export function callerOf(c: Context): Principal {
   const principal = principalOf(c);
   if (!principal) throw new ServiceError(403, "forbidden", "Sign in first.");
   return principal;
+}
+
+/** Per-project roles may only name projects that exist (archived ones too). */
+function assertProjectsExist(s: AppServices, projectRoles: Record<string, unknown> | undefined) {
+  const ids = Object.keys(projectRoles ?? {});
+  if (ids.length === 0) return;
+  const known = new Set(s.projects.list({ includeArchived: true }).map((p) => p.id));
+  const missing = ids.filter((id) => !known.has(id));
+  if (missing.length > 0) {
+    throw badRequest(`No such project: ${missing.join(", ")}`, "unknown_project");
+  }
 }
 
 /** Did a change alter what the member may see or do? */
@@ -143,6 +154,7 @@ export function memberRoutes(ctx: MemberRouteContext) {
         return c.json(body);
       })
       .post("/invites", jsonBody(CreateInviteRequest), (c) => {
+        assertProjectsExist(s, c.req.valid("json").projectRoles);
         const body: CreateInviteResponse = s.invites.create(
           c.req.valid("json"),
           callerOf(c).member.id,
@@ -155,6 +167,7 @@ export function memberRoutes(ctx: MemberRouteContext) {
       })
       .patch("/:id", jsonBody(UpdateMemberRequest), (c) => {
         const id = c.req.param("id");
+        assertProjectsExist(s, c.req.valid("json").projectRoles);
         const before = s.members.get(id);
         const member = s.members.update(id, c.req.valid("json"));
         // A change of access reaches the member's open connections at once: they close (its
@@ -177,6 +190,7 @@ export function memberRoutes(ctx: MemberRouteContext) {
       })
       // Settings › Members › Add agent (§C.1): the token is shown once.
       .post("/agents", jsonBody(CreateAgentRequest), (c) => {
+        assertProjectsExist(s, c.req.valid("json").projectRoles);
         const body: CreateAgentResponse = s.members.addAgent(
           c.req.valid("json"),
           callerOf(c).member.id,
