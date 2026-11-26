@@ -86,6 +86,21 @@ export class ToolRegistry {
   async call(name: string, args: unknown, caller: ToolCaller): Promise<ToolCallResult> {
     const tool = this.forRole(caller.role, caller).find((t) => t.name === name);
     if (!tool) return { text: `Unknown tool: ${name}`, isError: true };
+    // A role the input doesn't decide is refused before the input is read: the agent learns
+    // first that it may not do this at all, not what it got wrong in asking.
+    const early = tool.authority && typeof tool.authority.on !== "function";
+    if (early && tool.authority) {
+      try {
+        const { need, action } = tool.authority;
+        const target = needTarget(tool.authority, undefined as never, caller);
+        assertAuthority(this.services, caller, need, target, action);
+      } catch (error) {
+        if (error instanceof ToolError || error instanceof ServiceError) {
+          return { text: error.message, isError: true };
+        }
+        throw error;
+      }
+    }
     const parsed = tool.input.safeParse(args ?? {});
     if (!parsed.success) {
       return { text: invalidInputMessage(name, parsed.error, args ?? {}), isError: true };
@@ -97,7 +112,7 @@ export class ToolRegistry {
       return { text: `${name} needs a project`, isError: true };
     }
     try {
-      if (tool.authority) {
+      if (tool.authority && !early) {
         const { need, action } = tool.authority;
         const target = needTarget(tool.authority, parsed.data, caller);
         assertAuthority(this.services, caller, need, target, action);

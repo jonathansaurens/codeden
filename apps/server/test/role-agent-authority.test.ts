@@ -102,6 +102,9 @@ describe("role agents act with their person's role (§D.2)", () => {
     expect(created.isError).toBe(true);
     expect(created.text).toContain("Only an Owner can add projects");
     expect(created.text).toContain("Otto (an Operator)");
+    // The role is refused before the input is checked.
+    const bad = await call("orchestrator", "orch-otto", "create_project", { nonsense: 1 });
+    expect(bad.text).toContain("Only an Owner can add projects");
     const updated = await call("orchestrator", "orch-otto", "update_project", {
       projectId: "p1",
       name: "Renamed",
