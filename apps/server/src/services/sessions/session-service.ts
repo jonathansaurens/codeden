@@ -33,6 +33,7 @@ import {
   answeredByOf,
   asSent,
   assertMayAnswerApproval,
+  assertMayChooseAutonomy,
 } from "../../members/attribution";
 import { currentActor } from "../../members/principal";
 import type { SettingsStore } from "../../settings-store";
@@ -165,6 +166,7 @@ export class SessionService {
    * or title.
    */
   update(id: string, req: UpdateSessionRequest): Promise<Session> {
+    assertMayChooseAutonomy(req.autonomy);
     if (req.untilChecksPass !== undefined || req.checkRounds !== undefined) {
       const session = this.deps.repo.get(id);
       if (session.role !== "agent" || !session.checks?.commands.length) {
@@ -221,6 +223,7 @@ export class SessionService {
   async start(req: StartSessionRequest): Promise<StartSessionResponse> {
     // Purpose and work key come from the text as written: a connected agent's message gets an
     // introduction line below, which would give every session it starts the same key.
+    assertMayChooseAutonomy(req.autonomy);
     const ownInput = req.input;
     // The opening message is the user's when a person (or connected agent) started it (§B.4).
     if (req.input) {
@@ -501,10 +504,21 @@ export class SessionService {
   /** Answer a question or approval; `by` is who answered a question (the user or the PM). */
   async respond(id: string, req: RespondRequest, by: Answerer = "user"): Promise<void> {
     this.deps.repo.get(id);
-    if (req.response.kind === "approval") assertMayAnswerApproval();
+    // What the pending request is decides who may answer it, not the response's kind: an answer
+    // or a cancel sent to an approval would decide it as much as a denial does.
+    const answered = this.deps.inbox.findForRequest(id, req.requestId);
+    const asks =
+      this.deps.repo.requestKind(id, req.requestId) ??
+      (answered?.kind === "approval" || answered?.kind === "question" ? answered.kind : undefined);
+    if (asks === "approval" && req.response.kind !== "approval") {
+      throw badRequest("This request is an approval: answer it with a decision.", "wrong_response");
+    }
+    if (asks === "question" && req.response.kind === "approval") {
+      throw badRequest("This request is a question: answer it with answers.", "wrong_response");
+    }
+    if (asks === "approval" || req.response.kind === "approval") assertMayAnswerApproval();
     // Two people answering at once (§B.4): the first answer wins, the second hears who gave it.
     const key = `${id}\u0000${req.requestId}`;
-    const answered = this.deps.inbox.findForRequest(id, req.requestId);
     if (answered && answered.status !== "open") throw this.alreadyAnswered(answered.resolution);
     const claimed = this.answering.get(key);
     if (claimed !== undefined) throw this.alreadyAnswered({ answeredBy: claimed });

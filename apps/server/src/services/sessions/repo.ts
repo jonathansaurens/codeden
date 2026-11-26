@@ -417,6 +417,25 @@ export class SessionRepo {
     return events.length;
   }
 
+  /** What a session's request asks for: an approval, a question, or unknown to the transcript. */
+  requestKind(sessionId: string, requestId: string): "approval" | "question" | undefined {
+    const rows = this.db
+      .select({ data: items.data })
+      .from(items)
+      .where(
+        and(
+          eq(items.sessionId, sessionId),
+          inArray(items.kind, ["approval_request", "user_question"]),
+        ),
+      )
+      .all();
+    for (const { data } of rows) {
+      if (data.kind === "approval_request" && data.requestId === requestId) return "approval";
+      if (data.kind === "user_question" && data.requestId === requestId) return "question";
+    }
+    return undefined;
+  }
+
   item(sessionId: string, itemId: string): ItemRecord | undefined {
     const row = this.db
       .select()

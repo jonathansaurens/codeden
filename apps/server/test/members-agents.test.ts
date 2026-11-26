@@ -1,4 +1,4 @@
-import type { MeResponse } from "@codeden/contracts";
+import { type AgentEvent, agentEventToNewEvent, type MeResponse } from "@codeden/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentRateLimiter } from "../src/members/rate-limit";
 import { jsonInit, type MembersEnv, seedProjects, startMembersEnv } from "./support/members-env";
@@ -8,6 +8,30 @@ afterEach(async () => {
   await env?.close();
   env = undefined;
 });
+
+/** An approval the session's agent waits on, as the runner's events record it. */
+function pendingApproval(e: MembersEnv, sessionId: string, requestId: string): void {
+  const at = { threadId: `thread-${sessionId}`, turnId: "t1" };
+  const events: AgentEvent[] = [
+    { type: "thread.started", thread: { id: at.threadId } },
+    { type: "turn.started", ...at },
+    {
+      type: "item.started",
+      ...at,
+      item: {
+        id: `item-${requestId}`,
+        kind: "approval_request",
+        status: "in_progress",
+        requestId,
+        action: "command",
+        title: "Run rm -rf build",
+        command: "rm -rf build",
+        options: ["allow_once", "allow_session", "deny"],
+      },
+    } as AgentEvent,
+  ];
+  e.server.store.append(events.map((event) => agentEventToNewEvent(sessionId, event)));
+}
 
 const approve = { requestId: "r1", response: { kind: "approval", decision: "allow_once" } };
 const answer = { requestId: "r2", response: { kind: "answer", answers: { q: ["yes"] } } };
@@ -94,6 +118,56 @@ describe("connected agents (§C.1, §C.3)", () => {
       as: bot.as,
     });
     expect(on.status).not.toBe(403);
+  });
+
+  it("never lets an agent without May answer approvals decide one another way", async () => {
+    env = await startMembersEnv();
+    seedProjects(env.server, ["p1"]);
+    pendingApproval(env, "s-p1", "rq-approve");
+    const bot = await env.agent({ name: "helper", role: "operator" });
+    const as = bot.as;
+    // An answer or a cancel sent to an approval doesn't match it, whoever sends it.
+    for (const response of [{ kind: "answer", answers: { q1: ["yes"] } }, { kind: "cancel" }]) {
+      const res = await env.remote("/api/sessions/s-p1/respond", {
+        ...jsonInit("POST", { requestId: "rq-approve", response }),
+        as,
+      });
+      expect(res.status, response.kind).toBe(400);
+      expect(await res.json()).toMatchObject({ error: { code: "wrong_response" } });
+    }
+    // Raising the session's autonomy would let approvals pass unasked.
+    for (const autonomy of ["full", "auto"]) {
+      const res = await env.remote("/api/sessions/s-p1", {
+        ...jsonInit("PATCH", { autonomy }),
+        as,
+      });
+      expect(res.status, autonomy).toBe(403);
+      expect(await res.json()).toMatchObject({ error: { code: "approvals_not_allowed" } });
+    }
+    const started = await env.remote("/api/sessions", {
+      ...jsonInit("POST", { projectId: "p1", autonomy: "full", input: { text: "go" } }),
+      as,
+    });
+    expect(started.status).toBe(403);
+    // Asking for more approvals is always fine.
+    const lower = await env.remote("/api/sessions/s-p1", {
+      ...jsonInit("PATCH", { autonomy: "supervised" }),
+      as,
+    });
+    expect(lower.status).not.toBe(403);
+    // People keep what their role gives them, and an allowed agent may raise it.
+    const person = await env.join(await env.invite("operator"), "Olga");
+    const byPerson = await env.remote("/api/sessions/s-p1", {
+      ...jsonInit("PATCH", { autonomy: "full" }),
+      as: person,
+    });
+    expect(byPerson.status).not.toBe(403);
+    await env.local(`/api/members/${bot.id}`, jsonInit("PATCH", { mayAnswerApprovals: true }));
+    const allowed = await env.remote("/api/sessions/s-p1", {
+      ...jsonInit("PATCH", { autonomy: "full" }),
+      as,
+    });
+    expect(allowed.status).not.toBe(403);
   });
 
   it("refuses revoked tokens, disabled agents and deleted agents", async () => {

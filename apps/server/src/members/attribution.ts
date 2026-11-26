@@ -1,4 +1,4 @@
-import type { Actor, UserInput } from "@codeden/contracts";
+import type { Actor, AutonomyLevel, UserInput } from "@codeden/contracts";
 import { forbidden } from "../services/errors";
 import { currentActor, currentPrincipal } from "./principal";
 
@@ -59,6 +59,23 @@ export function assertMayAnswerApproval(): void {
   if (member?.kind === "agent" && !member.mayAnswerApprovals) {
     throw forbidden(
       "This connected agent may not answer approvals. An owner can allow it in Settings › Members.",
+      "approvals_not_allowed",
+    );
+  }
+}
+
+/**
+ * A session's autonomy decides which approvals are asked at all, so letting fewer of them be
+ * asked is answering them: a connected agent without "May answer approvals" may only choose a
+ * level that asks for everything (Supervised) or allows no changes (Read-only). People's roles
+ * decide for them, as before. Throws 403 otherwise.
+ */
+export function assertMayChooseAutonomy(level: AutonomyLevel | undefined): void {
+  if (level === undefined || level === "read_only" || level === "supervised") return;
+  const member = currentPrincipal()?.member;
+  if (member?.kind === "agent" && !member.mayAnswerApprovals) {
+    throw forbidden(
+      "This connected agent may not change autonomy, which decides approvals. An owner can allow it in Settings › Members (May answer approvals).",
       "approvals_not_allowed",
     );
   }
