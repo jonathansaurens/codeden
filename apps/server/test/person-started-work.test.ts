@@ -56,7 +56,7 @@ describe("work a person starts (§D.2)", () => {
       as: bot.as,
     });
     expect(tool.status).toBe(200);
-    expect((start.mock.calls[1]?.[0] as StartSessionRequest).startedBy).toEqual({
+    expect((start.mock.calls[1]?.[0] as StartSessionRequest | undefined)?.startedBy).toEqual({
       kind: "user",
       id: bot.id,
     });
