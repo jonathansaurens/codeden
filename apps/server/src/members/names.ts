@@ -2,7 +2,8 @@
  * Member names (§B.2): one name signs a person in and shows who did what, so two members must
  * never have names that look the same. A name is stored in its NFKC form, may not hold invisible
  * or format characters, and may not mix Latin with Greek or Cyrillic letters; names are compared
- * by `nameKey`, which also folds case and the letters those scripts share with Latin.
+ * by `nameKey`, which also folds case and the letters those scripts share with Latin, and leaves
+ * out spaces and punctuation.
  */
 
 /**
@@ -122,8 +123,12 @@ export function nameProblem(name: string): string | null {
   return null;
 }
 
-/** What names are compared by: two names with the same key look the same. */
+/**
+ * What names are compared by: two names with the same key look the same. Spaces and punctuation
+ * don't count ("S am", "Sam." and "Sam" are one name), unless a name is nothing else.
+ */
 export function nameKey(name: string): string {
   const capitals = [...normalizeName(name)].map((ch) => CAPITALS[ch] ?? ch).join("");
-  return [...capitals.toLowerCase()].map((ch) => SMALL[ch] ?? ch).join("");
+  const folded = [...capitals.toLowerCase()].map((ch) => SMALL[ch] ?? ch).join("");
+  return folded.replace(/[\s\p{P}]/gu, "") || folded;
 }

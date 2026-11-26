@@ -39,6 +39,11 @@ describe("member names that look alike", () => {
     expect(nameKey("B0b")).toBe(nameKey("Bob"));
     expect(nameKey("Ana  Maria")).toBe(nameKey("ana maria"));
     expect(nameKey("Ana")).not.toBe(nameKey("Anna"));
+    // Spaces inside a name and punctuation don't make another name.
+    expect(nameKey("S am")).toBe(nameKey("Sam"));
+    expect(nameKey("Sam.")).toBe(nameKey("Sam"));
+    expect(nameKey("O'Brien")).toBe(nameKey("OBrien"));
+    expect(nameKey("...")).not.toBe(nameKey(""));
     expect(normalizeName("  ﬁona  ")).toBe("fiona");
   });
 
