@@ -95,7 +95,7 @@ function MachineRow({ machine }: { machine: Machine }) {
         )}
         {machine.reinstalled && personal ? (
           <p className="text-2xs text-status-failed">
-            This computer was set up again, so CodeDen no longer trusts it as the same machine.
+            This machine was set up again, so CodeDen no longer trusts it as the same machine.
             Disconnect it, then connect it again.
           </p>
         ) : machine.reinstalled ? (

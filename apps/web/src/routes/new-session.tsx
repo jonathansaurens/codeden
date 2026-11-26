@@ -128,7 +128,7 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
                 ? project.execution.machine === "auto"
                   ? "Automatic"
                   : `On ${project.execution.machine ?? "a machine"}`
-                : "This computer, in a worktree"
+                : "Home, the server CodeDen runs on, in a worktree"
             }
             onChange={(choice) => setChoice(projectId, choice)}
           />
