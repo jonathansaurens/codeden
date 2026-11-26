@@ -1,4 +1,11 @@
-import { AddMachineResponse, Machine, MachinesResponse, MachineWeight } from "@codeden/contracts";
+import {
+  AddMachineResponse,
+  ConnectCodeResponse,
+  ConnectCodeStatus,
+  Machine,
+  MachinesResponse,
+  MachineWeight,
+} from "@codeden/contracts";
 import { z } from "zod";
 import type { CodeDenClient } from "./client";
 import type { Fetcher } from "./http";
@@ -12,6 +19,9 @@ export type MachinesMethods = Pick<
   | "setHomeWeight"
   | "removeMachine"
   | "reconnectMachine"
+  | "createConnectCode"
+  | "connectCodeStatus"
+  | "disconnectMachine"
 >;
 
 /**
@@ -39,6 +49,15 @@ export function httpMachinesApi(http: Fetcher): MachinesMethods {
         .then((r) => r.machine),
     async removeMachine(id, opts) {
       await http.call("DELETE", `${path(id)}${opts?.force ? "?force=true" : ""}`);
+    },
+    createConnectCode: (serverUrl) =>
+      http.post("/machines/connect-codes", { serverUrl }, (v) => ConnectCodeResponse.parse(v)),
+    connectCodeStatus: (id) =>
+      http.get(`/machines/connect-codes/${encodeURIComponent(id)}`, (v) =>
+        ConnectCodeStatus.parse(v),
+      ),
+    async disconnectMachine(id, opts) {
+      await http.post(`${path(id)}/disconnect${opts?.force ? "?force=true" : ""}`, {});
     },
   };
 }

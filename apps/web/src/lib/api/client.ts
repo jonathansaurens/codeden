@@ -6,6 +6,8 @@ import type {
   ClaudeSdkStatus,
   CompactSessionResponse,
   ConflictRecord,
+  ConnectCodeResponse,
+  ConnectCodeStatus,
   CreateProjectRequest,
   CreateProjectResponse,
   DiffResult,
@@ -289,6 +291,18 @@ export interface CodeDenClient {
    * archived.
    */
   reconnectMachine(id: string): Promise<Machine>;
+  /**
+   * A pairing code for one of the caller's own computers (§D.5), with the command to run there;
+   * `serverUrl` is the address the command names.
+   */
+  createConnectCode(serverUrl: string): Promise<ConnectCodeResponse>;
+  /** Where a pairing code is: waiting, paired, connected or expired. */
+  connectCodeStatus(id: string): Promise<ConnectCodeStatus>;
+  /**
+   * Disconnect a connected computer (its person or an Owner): revokes its key. Refused like
+   * `removeMachine` while sessions are placed there or a clone holds unpushed work.
+   */
+  disconnectMachine(id: string, opts?: { force?: boolean }): Promise<void>;
 
   /** Autonomy modes, the vision, the factory panel and kill switches (§10.1, experimental). */
   readonly factory: FactoryApi;

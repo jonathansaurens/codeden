@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "d167aaf9-ff30-4103-a541-fc2acd5686ca",
+  "id": "04fc0f9d-1e47-43ff-9831-8889f09a4b36",
   "prevIds": [
     "c8b63a6d-360f-4106-9484-655b6da3df43"
   ],
@@ -120,6 +120,10 @@
     },
     {
       "name": "notices",
+      "entityType": "tables"
+    },
+    {
+      "name": "machine_credentials",
       "entityType": "tables"
     },
     {
@@ -3253,6 +3257,106 @@
       "entityType": "columns"
     },
     {
+      "table": "machine_credentials",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "kind",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "hash",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "member_id",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "machine_id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "created_at",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "expires_at",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "used_at",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "last_used_at",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "revoked_at",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
       "table": "runners",
       "name": "id",
       "type": "text",
@@ -3316,6 +3420,16 @@
       "table": "runners",
       "name": "weight",
       "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "runners",
+      "name": "owner_member_id",
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -4169,6 +4283,34 @@
       "entityType": "indexes"
     },
     {
+      "table": "machine_credentials",
+      "name": "machine_credentials_hash",
+      "columns": [
+        {
+          "value": "hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "machine_credentials_machine",
+      "columns": [
+        {
+          "value": "machine_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
       "table": "runners",
       "name": "runners_runner_id",
       "columns": [
@@ -4514,6 +4656,15 @@
     {
       "table": "notices",
       "name": "notices_pk",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "machine_credentials",
+      "name": "machine_credentials_pk",
       "columns": [
         "id"
       ],

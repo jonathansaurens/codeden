@@ -5,7 +5,10 @@ import { badRequest, ServiceError } from "../errors";
 import type { RunnerPort } from "../runner-port";
 
 /** What placement needs of the machines. */
-export type MachinePlacer = Pick<MachineService, "find" | "port" | "providerReady">;
+export type MachinePlacer = Pick<
+  MachineService,
+  "find" | "port" | "providerReady" | "placementRefusal"
+>;
 
 /** A new session's machine, chosen before it is created. */
 export interface MachinePlacement {
@@ -21,8 +24,8 @@ const NOT_GITHUB =
  * Where a new session runs (`docs/machines-teams-and-agents.md` §A.5): the request's `machine`
  * when it names one, else its project's setting. Null for Home: the orchestrator, PMs, sessions
  * without a project, `home`, and projects whose sessions run on Home or in Docker. Refuses a
- * machine that doesn't exist, a project that isn't on GitHub, and a per-session choice in a
- * project whose sessions run in Docker.
+ * machine that doesn't exist, a project that isn't on GitHub, a per-session choice in a
+ * project whose sessions run in Docker, and someone else's own computer (§D.5).
  */
 export function machineFor(
   machines: MachinePlacer | undefined,
@@ -46,6 +49,9 @@ export function machineFor(
     const where = req.machine ? "" : " (the project's setting); choose another in its settings";
     throw badRequest(`No machine is called ${label}${where}`, "unknown_machine");
   }
+  // Someone's own computer takes only their work (§D.5).
+  const refused = machines?.placementRefusal(record, project.id);
+  if (refused) throw new ServiceError(403, "machine_not_yours", refused);
   if (project.kind !== "github") throw badRequest(NOT_GITHUB, "machine_unavailable");
   const port = machines?.port(record);
   if (!port || !record.runnerId) {

@@ -13,6 +13,8 @@ import {
   startServer,
 } from "@codeden/server";
 import { DEFAULT_PORT, HELP, type ParsedCli } from "./args";
+import { connectCommand } from "./connect-command";
+import { connectHome } from "./connect-file";
 import { doctor } from "./doctor";
 import type { LaunchInfo } from "./launcher";
 import { machinesCommand } from "./machines-command";
@@ -55,6 +57,15 @@ export async function runCommand(args: string[], parsed: ParsedCli): Promise<num
       detach: values.detach,
       backend: values.backend,
       fake: values.fake,
+    });
+  }
+  if (command === "connect") {
+    return connectCommand({
+      home: connectHome(values.home),
+      server: positionals[1],
+      code: values.code,
+      detach: values.detach,
+      stop: values.stop,
     });
   }
   if (command === "machines") {

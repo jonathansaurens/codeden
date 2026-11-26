@@ -9,7 +9,8 @@ import { ConflictCard } from "@/components/project/conflict-card";
 import { NewSessionHeader } from "@/components/project/new-session-header";
 import { NoMachineNotice } from "@/components/project/no-machine-notice";
 import { useStartDraft } from "@/components/project/use-start-draft";
-import { useMachines } from "@/lib/machines";
+import { pickableMachines, useMachines } from "@/lib/machines";
+import { useMe } from "@/lib/members";
 import { canPlaceOnMachines, machineChoices, resolveDraftChoice } from "@/lib/new-session";
 import { useProject, useProjectChecks, useSnapshot, useSnapshotData } from "@/lib/queries";
 import { newSessionDraftKey, useComposerStore } from "@/stores/composer";
@@ -34,9 +35,15 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
   const agent = useSnapshotData((s) => s.settings.providers.agent, null);
   // Machines to pick from for this session: GitHub projects that don't run in Docker only.
   const machineList = useMachines({ enabled: canPlaceOnMachines(project) }).data?.machines;
+  // Someone else's own computer isn't theirs to pick (§D.5).
+  const meId = useMe().data?.member.id;
   const machines = useMemo(
-    () => machineChoices(project, machineList?.map((m) => m.label) ?? []),
-    [project, machineList],
+    () =>
+      machineChoices(
+        project,
+        pickableMachines(machineList ?? [], meId).map((m) => m.label),
+      ),
+    [project, machineList, meId],
   );
   const draft = useNewSessionStore((s) => getNewSessionDraft(s, projectId));
   const { setChoice, setWorkKey } = useNewSessionStore.getState();

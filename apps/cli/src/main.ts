@@ -8,6 +8,7 @@
  *   codeden network [on [--loopback-only]|off]
  *   codeden network origin add|remove|list [<https-url>]
  *   codeden machines list|add|remove
+ *   codeden connect [<server> --code <code>] [--detach] [--stop] [--home <dir>]
  *   codeden runner --home <dir> --detach [--backend <id>] [--fake]
  *   codeden runner-link [--home <dir>]
  *   codeden --server <url> --token <token> <command> [--key value …]

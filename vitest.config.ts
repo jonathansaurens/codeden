@@ -62,7 +62,8 @@ const DESKTOP_PROCESS_TESTS = ["test/relay-chromium.test.ts"];
 /**
  * Server suites that start a real runner process with the Fake provider: they call
  * `startHarness` (`apps/server/test/support/harness.ts`), `startServer` without
- * `runner: false`, or drive a machine's runner through the fake `ssh` (`fakeMachine`). Found by
+ * `runner: false`, or drive a machine's runner through the fake `ssh` (`fakeMachine`) or a
+ * computer's that links in (`fakeComputer`). Found by
  * reading the test files, so a new suite lands here on its own.
  */
 const SERVER_ROOT = fileURLToPath(new URL("./apps/server/", import.meta.url));
@@ -75,6 +76,7 @@ const SERVER_RUNNER_TESTS = readdirSync(join(SERVER_ROOT, "test"))
     return (
       source.includes("startHarness(") ||
       source.includes("fakeMachine(") ||
+      source.includes("fakeComputer(") ||
       (source.includes("startServer(") && !source.includes("runner: false"))
     );
   });

@@ -4,6 +4,7 @@ import { DEFAULT_MACHINE_WEIGHT, messageFrom, type Session } from "@codeden/cont
 import { createImageEngineRegistry, type ImageEngineRegistry } from "@codeden/providers";
 import type { Db } from "../db/client";
 import type { EventStore } from "../events/store";
+import type { ComputerService } from "../execution/connected/computers";
 import { AutoPlacement } from "../execution/placement/auto";
 import { noSandboxes, type SandboxService } from "../execution/sandboxes";
 import type { MachineService } from "../execution/ssh/machines";
@@ -93,6 +94,8 @@ export interface ServicesOptions {
   sandboxes?: SandboxService;
   /** Machines over SSH (`docs/machines-teams-and-agents.md` Part A); made by the server. */
   machines?: MachineService;
+  /** People's own computers, linked in with `codeden connect` (§D.5); made by the server. */
+  computers?: ComputerService;
   secrets: SecretStore;
   exec?: Exec;
   /** Finds claude, codex and gh for the setup checks (tests fake it with `exec`). */
@@ -153,6 +156,8 @@ export interface AppServices {
   sandboxes: SandboxService;
   /** Machines over SSH; absent in services made without a runner hub. */
   machines?: MachineService;
+  /** People's own computers (§D.5); absent in services made without a runner hub. */
+  computers?: ComputerService;
   secrets: SecretStore;
   utility: UtilityService;
   projects: ProjectService;
@@ -480,6 +485,7 @@ export function createServices(opts: ServicesOptions): AppServices {
     runners,
     sandboxes,
     machines: opts.machines,
+    computers: opts.computers,
     secrets: opts.secrets,
     utility,
     projects,

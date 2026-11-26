@@ -3,10 +3,12 @@ import { House, Server, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ago } from "@/lib/format";
-import { capacityLine, useMachines, withLiveState } from "@/lib/machines";
+import { capacityLine, machineTitle, useMachines, withLiveState } from "@/lib/machines";
+import { useCan, useMe } from "@/lib/members";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connection";
 import { AddMachineForm } from "./machine-add-form";
+import { ConnectComputerButton } from "./machine-connect-dialog";
 import { PREFERENCE_HELP, PreferencePicker } from "./machine-preference";
 import { ReinstalledNotice } from "./machine-reinstalled";
 import { RemoveMachineDialog } from "./machine-remove-dialog";
@@ -48,18 +50,31 @@ function machineFacts(m: Machine): string {
 
 function MachineRow({ machine }: { machine: Machine }) {
   const [removing, setRemoving] = useState(false);
+  const isOwner = useCan("owner", undefined);
+  const meId = useMe().data?.member.id ?? "owner";
+  const personal = machine.kind === "connected";
+  // A person's own computer: they or an Owner may disconnect it; anything else is an Owner's.
+  const canRemove = isOwner || (personal && machine.owner?.id === meId);
   const ready = machine.providers.filter((p) => p.ready);
   const notReady = machine.providers.filter((p) => !p.ready);
   return (
     <div className="flex items-start gap-4 px-4 py-3.5" data-testid="machine-row">
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[13.5px] font-medium">{machine.label}</span>
+          <span className="text-[13.5px] font-medium">{machineTitle(machine)}</span>
           <StateBadge state={machine.state} />
         </div>
         <div className="truncate font-mono text-[12.5px] text-muted-foreground">
-          {machine.destination}
+          {personal
+            ? [machine.label, machine.destination].filter(Boolean).join(" · ")
+            : machine.destination}
         </div>
+        {personal && (
+          <div className="text-2xs text-muted-foreground" data-testid="machine-personal">
+            Linked in with codeden connect. Only {machine.owner?.name ?? "its person"} can run
+            sessions here, and Automatic never picks it.
+          </div>
+        )}
         <div className="text-2xs text-muted-foreground">{machineFacts(machine)}</div>
         <div className="text-2xs text-muted-foreground" data-testid="machine-capacity">
           {capacityLine(machine.resources)}
@@ -78,7 +93,12 @@ function MachineRow({ machine }: { machine: Machine }) {
             ))}
           </div>
         )}
-        {machine.reinstalled ? (
+        {machine.reinstalled && personal ? (
+          <p className="text-2xs text-status-failed">
+            This computer was set up again, so CodeDen no longer trusts it as the same machine.
+            Disconnect it, then connect it again.
+          </p>
+        ) : machine.reinstalled ? (
           <ReinstalledNotice machine={machine} />
         ) : (
           machine.lastError && (
@@ -87,16 +107,20 @@ function MachineRow({ machine }: { machine: Machine }) {
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <PreferencePicker machineId={machine.id} name={machine.label} weight={machine.weight} />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground"
-          aria-label={`Remove ${machine.label}`}
-          onClick={() => setRemoving(true)}
-        >
-          <Trash2 />
-        </Button>
+        {isOwner && !personal && (
+          <PreferencePicker machineId={machine.id} name={machine.label} weight={machine.weight} />
+        )}
+        {canRemove && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground"
+            aria-label={`${personal ? "Disconnect" : "Remove"} ${machine.label}`}
+            onClick={() => setRemoving(true)}
+          >
+            <Trash2 />
+          </Button>
+        )}
       </div>
       <RemoveMachineDialog machine={machine} open={removing} onOpenChange={setRemoving} />
     </div>
@@ -111,6 +135,7 @@ function HomeRow({
   weight: MachineWeight;
   resources: HostResources | null;
 }) {
+  const isOwner = useCan("owner", undefined);
   return (
     <div className="flex items-start gap-4 px-4 py-3.5" data-testid="home-row">
       <div className="min-w-0 flex-1 space-y-1">
@@ -123,7 +148,7 @@ function HomeRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <PreferencePicker name="Home" weight={weight} />
+        {isOwner && <PreferencePicker name="Home" weight={weight} />}
         {/* Lines up with the machines' Remove buttons. */}
         <span className="size-7" />
       </div>
@@ -133,10 +158,14 @@ function HomeRow({
 
 /**
  * Settings > Machines: other computers CodeDen runs agent sessions on over SSH, each with a
- * runner of its own, and Home. Their state is live from the realtime runner list; capacity and
- * the rest are what `GET /api/machines` reports, polled while the section is open.
+ * runner of its own, people's own computers linked in with `codeden connect` (§D.5), and Home.
+ * Their state is live from the realtime runner list; capacity and the rest are what
+ * `GET /api/machines` reports, polled while the section is open. Any person may connect their
+ * own computer; adding, tuning and removing machines is for owners.
  */
 export function MachinesSettings() {
+  const isOwner = useCan("owner", undefined);
+  const me = useMe().data?.member;
   const query = useMachines({ refetchInterval: 10_000 });
   const runners = useConnectionStore((s) => s.runners);
   const machines = useMemo(
@@ -147,7 +176,7 @@ export function MachinesSettings() {
     <>
       <SettingsSection
         title="Machines"
-        description="Other computers that run agent sessions, reached with your own ssh. Each clones a GitHub project's repository and uses its own provider sign-ins."
+        description="Other computers that run agent sessions: reached with your own ssh, or people's own computers linked in. Each clones a GitHub project's repository and uses its own provider sign-ins."
       >
         {query.data && (
           <>
@@ -179,9 +208,21 @@ export function MachinesSettings() {
           </p>
         )}
       </SettingsSection>
-      <SettingsSection title="Add a machine">
-        <AddMachineForm />
-      </SettingsSection>
+      {(me?.kind ?? "person") === "person" && (
+        <SettingsSection
+          title="Your computer"
+          description="Run agent sessions on your own laptop or desktop with its own provider sign-ins. It links out to CodeDen, so it works behind NAT, asleep and on the move; only you can place work there."
+        >
+          <div className="px-4 py-3.5">
+            <ConnectComputerButton />
+          </div>
+        </SettingsSection>
+      )}
+      {isOwner && (
+        <SettingsSection title="Add a machine">
+          <AddMachineForm />
+        </SettingsSection>
+      )}
     </>
   );
 }

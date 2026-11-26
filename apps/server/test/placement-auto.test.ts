@@ -53,6 +53,7 @@ const record = (label: string, weight: number | null = null): RunnerRecord => ({
   sandboxRef: `dev@${label}`,
   label,
   weight,
+  ownerMemberId: null,
   projectId: null,
   sessionId: null,
   state: "connected",
@@ -131,6 +132,21 @@ describe("automatic placement", () => {
     });
     expect(await w.auto.choose(github, "codex")).toEqual({ kind: "home" });
     // Manual only is never asked for its capacity.
+    expect(w.machines[0]?.s.asked).toBe(0);
+  });
+
+  it("never chooses someone's own computer, however free it is", async () => {
+    const laptop = {
+      ...record("alice-mbp", 100),
+      backend: "connected" as const,
+      ownerMemberId: "alice",
+    };
+    const w = world({
+      home: { answer: resources(0.9) },
+      machines: [{ record: laptop, answer: resources(0, 64) }],
+      ready: ["Home", "alice-mbp"],
+    });
+    expect(await w.auto.choose(github, "codex")).toEqual({ kind: "home" });
     expect(w.machines[0]?.s.asked).toBe(0);
   });
 

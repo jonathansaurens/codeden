@@ -42,15 +42,36 @@ export function withLiveState(machines: readonly Machine[], runners: readonly Ru
 }
 
 /**
- * The machine a session runs on: the `ssh` runner record whose `runnerId` is the session's.
- * Undefined for Home and for any other runner.
+ * The machine a session runs on: the machine's runner record (over SSH, or someone's own
+ * computer) whose `runnerId` is the session's. Undefined for Home and for any other runner.
  */
 export function sessionMachine(
   runnerId: string | null | undefined,
   runners: readonly RunnerRecord[],
 ): RunnerRecord | undefined {
   if (!runnerId) return undefined;
-  return runners.find((r) => r.backend === "ssh" && r.runnerId === runnerId);
+  return runners.find(
+    (r) => (r.backend === "ssh" || r.backend === "connected") && r.runnerId === runnerId,
+  );
+}
+
+/** "Alice's computer" for a person's own computer (§D.5), else the machine's label. */
+export function machineTitle(m: Pick<Machine, "label" | "owner">): string {
+  return m.owner ? `${m.owner.name}'s computer` : m.label;
+}
+
+/**
+ * The machines a person may pick for one session: every machine over SSH, and their own
+ * computers (someone else's takes only its person's work, §D.5). `meId` undefined (not loaded
+ * yet) counts as the first owner, as a single-user install is.
+ */
+export function pickableMachines(machines: readonly Machine[], meId: string | undefined) {
+  return machines.filter((m) => !m.owner || m.owner.id === (meId ?? "owner"));
+}
+
+/** The machines a project's setting may name: never someone's own computer. */
+export function projectMachines(machines: readonly Machine[]) {
+  return machines.filter((m) => !m.owner);
 }
 
 const GIB = 1024 ** 3;

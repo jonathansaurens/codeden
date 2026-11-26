@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useClient } from "@/lib/api";
-import { useMachines } from "@/lib/machines";
+import { projectMachines, useMachines } from "@/lib/machines";
 import { useProjectActions } from "@/lib/project-actions";
 
 const NOT_GITHUB = "Machines need a GitHub project; with Automatic its sessions run on Home";
@@ -37,7 +37,8 @@ export function ProjectExecution({ project }: { project: Project }) {
     staleTime: 30_000,
   });
   const machines = useMachines();
-  const labels = machines.data?.machines.map((m) => m.label) ?? [];
+  // A person's own computer is picked per session, never for a whole project (§D.5).
+  const labels = projectMachines(machines.data?.machines ?? []).map((m) => m.label);
   const docker = backends.data?.backends.find((b) => b.backend === "docker");
   // A project from an older server has no setting: it runs locally.
   const backend = project.execution?.backend ?? "local";

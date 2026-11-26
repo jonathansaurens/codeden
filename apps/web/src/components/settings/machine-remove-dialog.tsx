@@ -13,11 +13,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useClient } from "@/lib/api";
 import { ApiRequestError } from "@/lib/api/http";
-import { machinesKey } from "@/lib/machines";
+import { machinesKey, machineTitle } from "@/lib/machines";
 
 /**
- * Confirms removing a machine. The server refuses while sessions placed there aren't archived
- * (`machine_in_use`, no way around it) and while a clone there has unpushed work
+ * Confirms removing a machine, or disconnecting a person's own computer (which also revokes its
+ * key, so `codeden connect` there stops). The server refuses while sessions placed there aren't
+ * archived (`machine_in_use`, no way around it) and while a clone there has unpushed work
  * (`machine_unpushed`), which "Remove anyway" overrides.
  */
 export function RemoveMachineDialog({
@@ -31,11 +32,16 @@ export function RemoveMachineDialog({
 }) {
   const client = useClient();
   const queryClient = useQueryClient();
+  const personal = machine.kind === "connected";
+  const name = machineTitle(machine);
   const remove = useMutation({
-    mutationFn: (force: boolean) => client.removeMachine(machine.id, { force }),
+    mutationFn: (force: boolean) =>
+      personal
+        ? client.disconnectMachine(machine.id, { force })
+        : client.removeMachine(machine.id, { force }),
     onSuccess: () => {
       onOpenChange(false);
-      toast.success(`${machine.label} removed`);
+      toast.success(`${name} ${personal ? "disconnected" : "removed"}`);
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: machinesKey }),
   });
@@ -53,11 +59,24 @@ export function RemoveMachineDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Remove {machine.label}?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {personal ? `Disconnect ${name}?` : `Remove ${machine.label}?`}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            CodeDen stops its runner on <span className="font-mono">{machine.destination}</span> and
-            forgets the machine. Files there (in{" "}
-            <span className="font-mono">~/.codeden-runner</span>) are left as they are.
+            {personal ? (
+              <>
+                CodeDen stops its runner, revokes the computer's key and forgets it;{" "}
+                <span className="font-mono">codeden connect</span> there stops. To use it again,
+                connect it again.
+              </>
+            ) : (
+              <>
+                CodeDen stops its runner on <span className="font-mono">{machine.destination}</span>{" "}
+                and forgets the machine.
+              </>
+            )}{" "}
+            Files there (in <span className="font-mono">~/.codeden-runner</span>) are left as they
+            are.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {remove.error && (
@@ -80,7 +99,13 @@ export function RemoveMachineDialog({
               remove.mutate(unpushed);
             }}
           >
-            {unpushed ? "Remove anyway" : "Remove machine"}
+            {unpushed
+              ? personal
+                ? "Disconnect anyway"
+                : "Remove anyway"
+              : personal
+                ? "Disconnect"
+                : "Remove machine"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
