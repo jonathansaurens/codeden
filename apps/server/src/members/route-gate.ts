@@ -3,7 +3,7 @@ import { matchedRoutes } from "hono/route";
 import type { AppServices } from "../services/container";
 import { type AuthTarget, authorize, ownsEverything, roleFor } from "./authorize";
 import { principalOf } from "./principal";
-import { isPrivateSession } from "./privacy";
+import { isOwnOrchestrator, isPrivateSession } from "./privacy";
 import { type EntityKind, ROUTE_RULES, type RouteRule, type Scope } from "./route-rules";
 import { filterResponse, projectOfEntity, sessionOfEntity } from "./visibility";
 
@@ -149,7 +149,11 @@ export function routeGate(s: AppServices): MiddlewareHandler {
       return deny(c, 404, "not_found", "Not found");
     }
     if (!owner && rule.need !== "member") {
-      const target = await targetOf(s, c, rule.scope ?? "server", params);
+      // The member's own orchestrator, its items and inbox entries: their `own` role (§D.1).
+      const own = named !== null && isOwnOrchestrator(s.db, principal.member, named);
+      const target: AuthTarget = own
+        ? { kind: "own" }
+        : await targetOf(s, c, rule.scope ?? "server", params);
       const decision = authorize(principal, rule.need, target, ctx);
       if (!decision.ok) {
         const scope = rule.scope;

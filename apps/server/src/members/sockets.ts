@@ -1,9 +1,16 @@
 import type { Member, Notice, RawEventEnvelope, Session, TerminalQuery } from "@codeden/contracts";
 import { roleAtLeast } from "@codeden/contracts";
 import type { AppServices } from "../services/container";
-import { type AuthorizeContext, authorize, canSee, ownsEverything, roleFor } from "./authorize";
+import {
+  type AuthorizeContext,
+  type AuthTarget,
+  authorize,
+  canSee,
+  ownsEverything,
+  roleFor,
+} from "./authorize";
 import type { Principal } from "./principal";
-import { isPrivateSession, orchestratorMember } from "./privacy";
+import { isOwnOrchestrator, isPrivateSession, orchestratorMember } from "./privacy";
 import { projectOfEntity } from "./visibility";
 
 /**
@@ -68,6 +75,16 @@ function privateSessions(s: AppServices, member: Member): (sessionId: string) =>
   };
 }
 
+/**
+ * What a session is checked on for a member: their own orchestrator on their `own` role (the
+ * highest anywhere, §D.1), any other session on its project.
+ */
+function sessionTarget(s: AppServices, member: Member, sessionId: string): AuthTarget {
+  return isOwnOrchestrator(s.db, member, sessionId)
+    ? { kind: "own" }
+    : { kind: "project", projectId: projectOfEntity(s, "session", sessionId) };
+}
+
 /** An event that names someone else's orchestrator: its session, or a notice for it. */
 function privateEvent(
   e: RawEventEnvelope,
@@ -110,6 +127,19 @@ export function eventFilterFor(
     if (!sessionProjects.has(id)) sessionProjects.set(id, projectOfEntity(s, "session", id));
     return sessionProjects.get(id) ?? null;
   };
+  // The member's own orchestrator is theirs to watch with their `own` role (§D.1).
+  const own = new Map<string, boolean>();
+  const seesOwn = roleAtLeast(roleFor(member, { kind: "own" }, ctx), "viewer");
+  const isOwn = (id: string) => {
+    let mine = own.get(id);
+    if (mine === undefined) {
+      mine = isOwnOrchestrator(s.db, member, id);
+      own.set(id, mine);
+    }
+    return mine;
+  };
+  const seesSession = (id: string) =>
+    isOwn(id) ? seesOwn : canSee(member, projectOfSession(id), ctx);
   // A member event carries the whole member: roles, project roles (naming projects others may
   // not see), whether it is disabled, who created it. That is the Owners' view (`GET /members`);
   // everyone else has names from `/members/summaries`, and their own roles from `/members/me`.
@@ -122,13 +152,24 @@ export function eventFilterFor(
         const projectId = payloadProject(e.payload);
         if (projectId !== undefined) sessionProjects.set(e.sessionId, projectId);
       }
-      return canSee(member, projectOfSession(e.sessionId), ctx);
+      return seesSession(e.sessionId);
     }
     if (NEUTRAL_EVENTS.has(e.type)) return true;
+    const payload = e.payload as {
+      sessionId?: unknown;
+      notice?: Notice;
+      item?: { sessionId?: unknown };
+    } | null;
+    // A notice for the member's own orchestrator, and its inbox items (approvals, questions).
+    if (payload?.notice?.target === "orchestrator" && payload.notice.projectId === null) {
+      return seesOwn;
+    }
+    const itemSession = payload?.item?.sessionId;
+    if (typeof itemSession === "string" && isOwn(itemSession)) return seesOwn;
     const projectId = payloadProject(e.payload);
     if (projectId === undefined) {
-      const sessionId = (e.payload as { sessionId?: unknown } | null)?.sessionId;
-      if (typeof sessionId === "string") return canSee(member, projectOfSession(sessionId), ctx);
+      const sessionId = payload?.sessionId;
+      if (typeof sessionId === "string") return seesSession(sessionId);
     }
     // Anything else that names no project is work across projects.
     return canSee(member, projectId ?? null, ctx);
@@ -143,7 +184,8 @@ export function canWatchSession(
 ): boolean {
   if (principal && isPrivateSession(s.db, principal.member, sessionId)) return false;
   if (!principal || ownsEverything(principal.member)) return true;
-  return canSee(principal.member, projectOfEntity(s, "session", sessionId), authorizeContext(s));
+  const target = sessionTarget(s, principal.member, sessionId);
+  return roleAtLeast(roleFor(principal.member, target, authorizeContext(s)), "viewer");
 }
 
 /** What a member may do with a session's terminal or browser: drive it, watch it, or nothing. */
@@ -152,7 +194,7 @@ export type SocketAccess = "full" | "read" | null;
 function sessionAccess(s: AppServices, principal: Principal, sessionId: string): SocketAccess {
   if (isPrivateSession(s.db, principal.member, sessionId)) return null;
   const ctx = authorizeContext(s);
-  const target = { kind: "project" as const, projectId: projectOfEntity(s, "session", sessionId) };
+  const target = sessionTarget(s, principal.member, sessionId);
   if (authorize(principal, "operator", target, ctx).ok) return "full";
   return roleAtLeast(roleFor(principal.member, target, ctx), "viewer") ? "read" : null;
 }

@@ -240,8 +240,9 @@ export const ROUTE_RULES: Readonly<Record<string, RouteRule>> = {
   "POST /orchestration/projects/:projectId/pm/start-fresh": o(project("projectId")),
   "GET /orchestration/projects/:projectId/status": v(project("projectId")),
   "GET /orchestration/overview": v("global"),
-  "GET /orchestration/roles": v("global"),
-  "GET /orchestration/notices": v("global"),
+  // Filtered to the caller's own orchestrator and the projects they can see.
+  "GET /orchestration/roles": v("own"),
+  "GET /orchestration/notices": v("own"),
   "GET /conflicts": v("global"),
   "GET /conflicts/:id": v(conflict),
   "POST /conflicts/:id/resolve": o(conflict),

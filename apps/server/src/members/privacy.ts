@@ -12,6 +12,11 @@ import { sessions } from "../db/schema";
 export interface Privacy {
   /** Orchestrator sessions (retired ones too) that aren't the member's. */
   hidden: ReadonlySet<string>;
+  /**
+   * The member's own orchestrator sessions (retired ones too): outside any project, so they are
+   * seen with the member's `own` role, not the lowest one a hidden project gives.
+   */
+  own?: ReadonlySet<string>;
 }
 
 /** The member an orchestrator session belongs to (no owner recorded: the first owner). */
@@ -27,10 +32,12 @@ export function privacyFor(db: Db, member: Member): Privacy {
     .where(eq(sessions.role, "orchestrator"))
     .all();
   const hidden = new Set<string>();
+  const own = new Set<string>();
   for (const row of rows) {
     if (member.kind === "agent" || orchestratorMember(row.owner) !== member.id) hidden.add(row.id);
+    else own.add(row.id);
   }
-  return { hidden };
+  return { hidden, own };
 }
 
 /** Whether a session is someone else's orchestrator, for this member. */
@@ -42,4 +49,19 @@ export function isPrivateSession(db: Db, member: Member, sessionId: string): boo
     .get();
   if (row?.role !== "orchestrator") return false;
   return member.kind === "agent" || orchestratorMember(row.owner) !== member.id;
+}
+
+/**
+ * Whether a session is the member's own orchestrator (a person's; connected agents have none).
+ * It belongs to no project, so its routes and streams check the member's `own` role (the highest
+ * they have anywhere), never the lowest one a hidden project would give.
+ */
+export function isOwnOrchestrator(db: Db, member: Member, sessionId: string): boolean {
+  if (member.kind === "agent") return false;
+  const row = db
+    .select({ role: sessions.role, owner: sessions.ownerMemberId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .get();
+  return row?.role === "orchestrator" && orchestratorMember(row.owner) === member.id;
 }

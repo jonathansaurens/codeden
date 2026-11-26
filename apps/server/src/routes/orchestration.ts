@@ -41,6 +41,12 @@ export function orchestrationRoutes(s: AppServices) {
     }
     return personKey(member?.id);
   };
+  /** Whether the caller can see a project (everything, for a request without a member). */
+  const visibleTo = (c: Context) => {
+    const member = principalOf(c)?.member;
+    const ctx = authorizeContext(s);
+    return (projectId: string) => !member || canSee(member, projectId, ctx);
+  };
   const pmSession = (projectId: string): RoleSessionResponse => {
     s.projects.get(projectId);
     return { session: o.roles.find("pm", projectId) ?? null };
@@ -131,14 +137,28 @@ export function orchestrationRoutes(s: AppServices) {
           : undefined;
         return c.json(o.overview(visible, personKey(member?.id)));
       })
-      .get("/roles", (c) => c.json(o.roles.refs(personKey(principalOf(c)?.member.id))))
-      // Notices for orchestrators are their person's alone (§D.1).
+      // The caller's own orchestrator, and the PMs of the projects they can see.
+      .get("/roles", (c) => {
+        const member = principalOf(c)?.member;
+        const refs = o.roles.refs(personKey(member?.id));
+        const sees = visibleTo(c);
+        return c.json({
+          ...refs,
+          pms: Object.fromEntries(Object.entries(refs.pms).filter(([id]) => sees(id))),
+        });
+      })
+      // Notices for orchestrators are their person's alone (§D.1); a PM's, its project's.
       .get("/notices", queryOf(ListNoticesQuery), (c) => {
         const mine = personKey(principalOf(c)?.member.id);
+        const sees = visibleTo(c);
         return c.json(
           o.notices
             .list(c.req.valid("query"))
-            .filter((n) => n.target !== "orchestrator" || personKey(n.memberId) === mine),
+            .filter((n) =>
+              n.target === "orchestrator"
+                ? personKey(n.memberId) === mine && (n.projectId === null || sees(n.projectId))
+                : n.projectId !== null && sees(n.projectId),
+            ),
         );
       })
   );

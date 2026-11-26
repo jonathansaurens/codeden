@@ -4,12 +4,13 @@ import {
   type Member,
   type Project,
   parseGithubPrId,
+  roleAtLeast,
   type Session,
   type Snapshot,
   type TranscriptSearchResponse,
 } from "@codeden/contracts";
 import type { AppServices } from "../services/container";
-import { type AuthorizeContext, canSee } from "./authorize";
+import { type AuthorizeContext, canSee, roleFor } from "./authorize";
 import { type Privacy, privacyFor } from "./privacy";
 import type { EntityKind, ResponseFilter } from "./route-rules";
 
@@ -76,11 +77,18 @@ export function sessionOfEntity(s: AppServices, entity: EntityKind, id: string):
  */
 function sessionVisible(
   member: Member,
-  session: Session,
+  session: Pick<Session, "id" | "projectId">,
   ctx: AuthorizeContext,
   privacy: Privacy,
 ): boolean {
-  return !privacy.hidden.has(session.id) && canSee(member, session.projectId, ctx);
+  if (privacy.hidden.has(session.id)) return false;
+  if (privacy.own?.has(session.id)) return seesOwn(member, ctx);
+  return canSee(member, session.projectId, ctx);
+}
+
+/** Whether the member may read their own orchestrator: Viewer anywhere (§D.1). */
+function seesOwn(member: Member, ctx: AuthorizeContext): boolean {
+  return roleAtLeast(roleFor(member, { kind: "own" }, ctx), "viewer");
 }
 
 function inboxVisible(
@@ -91,6 +99,7 @@ function inboxVisible(
   privacy: Privacy,
 ): boolean {
   if (item.sessionId && privacy.hidden.has(item.sessionId)) return false;
+  if (item.sessionId && privacy.own?.has(item.sessionId)) return seesOwn(member, ctx);
   const projectId = item.projectId ?? (item.sessionId ? sessionProject(item.sessionId) : null);
   return canSee(member, projectId, ctx);
 }
@@ -182,9 +191,13 @@ export async function filterResponse(
       const search = body as TranscriptSearchResponse;
       next = {
         ...search,
-        hits: search.hits.filter(
-          (h) =>
-            !privacy.hidden.has(h.sessionId) && canSee(member, sessionProject(h.sessionId), ctx),
+        hits: search.hits.filter((h) =>
+          sessionVisible(
+            member,
+            { id: h.sessionId, projectId: sessionProject(h.sessionId) },
+            ctx,
+            privacy,
+          ),
         ),
       };
       break;
