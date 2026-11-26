@@ -21,7 +21,11 @@ export const ACTIVITY_TYPES = [
   "automation.deleted",
 ] as const;
 
-/** `session.updated` is read too, for stops: the list shows those as `session.stopped`. */
+/**
+ * `session.updated` is read too: a stop shows as `session.stopped`, and a switch to running as
+ * `turn.started` (someone sent a message: the message itself is recorded later, by the runner,
+ * without the sender).
+ */
 export const ACTIVITY_QUERY_TYPES = [...ACTIVITY_TYPES, "session.updated"];
 
 export interface ActivityRow {
@@ -35,16 +39,19 @@ export interface ActivityRow {
 
 export type ActivityEvent = Omit<ActivityRow, "payload">;
 
-/** A `session.updated` that is someone stopping the session. */
-function isStop(row: ActivityRow): boolean {
+/** What a `session.updated` by this actor shows as, or null for none of the list's business. */
+function updateType(row: ActivityRow): string | null {
   const session = (row.payload as { session?: { status?: string; stoppedBy?: Actor | null } })
     ?.session;
-  return session?.status === "stopped" && session.stoppedBy?.memberId === row.actor.memberId;
+  if (session?.status === "stopped" && session.stoppedBy?.memberId === row.actor.memberId) {
+    return "session.stopped";
+  }
+  return session?.status === "running" ? "turn.started" : null;
 }
 
 /**
- * The activity list from the newest rows first: stops kept from `session.updated` (as
- * `session.stopped`), the rest of it dropped, and runs of the same thing by the same actor on
+ * The activity list from the newest rows first: stops and sends kept from `session.updated`,
+ * the rest of it dropped, and runs of the same thing by the same actor on
  * the same session folded into one (a start's first turn, a burst of setting changes).
  */
 export function activityOf(rows: ActivityRow[], limit: number): ActivityEvent[] {
@@ -53,8 +60,9 @@ export function activityOf(rows: ActivityRow[], limit: number): ActivityEvent[] 
     if (out.length >= limit) break;
     let type = row.type;
     if (type === "session.updated") {
-      if (!isStop(row)) continue;
-      type = "session.stopped";
+      const shown = updateType(row);
+      if (!shown) continue;
+      type = shown;
     }
     const prev = out.at(-1);
     const sameActor = prev?.actor.memberId === row.actor.memberId;

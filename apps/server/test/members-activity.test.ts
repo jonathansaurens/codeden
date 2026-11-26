@@ -15,9 +15,9 @@ describe("the activity list (§B.4)", () => {
     // Newest first, as the route reads them.
     const rows = [
       row("session.updated", olga, "s1", session("stopped", olga)),
+      row("session.updated", olga, "s1", session("idle")),
+      row("session.updated", bot, "s2", session("running")),
       row("session.updated", olga, "s1", session("running")),
-      row("turn.started", bot, "s2"),
-      row("turn.started", olga, "s1"),
       row("session.created", olga, "s1"),
       row("settings.updated", olga, null),
       row("settings.updated", olga, null),
