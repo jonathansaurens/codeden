@@ -12,7 +12,7 @@ import { TRIGGER_CLASS } from "./model-picker/trigger";
 
 /**
  * "Runs on" for a New session draft in a GitHub project once machines exist: the project's
- * setting (the default, sends nothing), Automatic, Home (this computer) or a machine by name, for this one
+ * setting (the default, sends nothing), Automatic, Home (the server CodeDen runs on) or a machine by name, for this one
  * session (`StartSessionRequest.machine`).
  */
 export function RunsOnPicker({
@@ -35,7 +35,7 @@ export function RunsOnPicker({
       label: "Automatic",
       help: "Home or the machine with the most free capacity",
     },
-    { value: "home", label: "Home", help: "This computer, in a worktree" },
+    { value: "home", label: "Home", help: "The server CodeDen runs on, in a worktree" },
     ...machines.map((label) => ({ value: label, label })),
   ];
   const shown = options.find((o) => o.value === value)?.label ?? value ?? "Project setting";

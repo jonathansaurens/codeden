@@ -127,7 +127,7 @@ function MachineRow({ machine }: { machine: Machine }) {
   );
 }
 
-/** This computer, a candidate for automatic placement like any machine. */
+/** Home, the server CodeDen runs on: a candidate for automatic placement like any machine. */
 function HomeRow({
   weight,
   resources,
@@ -142,7 +142,7 @@ function HomeRow({
         <div className="flex items-center gap-2 text-[13.5px] font-medium">
           <House className="size-3.5 text-muted-foreground" /> Home
         </div>
-        <div className="text-2xs text-muted-foreground">This computer</div>
+        <div className="text-2xs text-muted-foreground">The server CodeDen runs on</div>
         <div className="text-2xs text-muted-foreground" data-testid="home-capacity">
           {capacityLine(resources)}
         </div>
