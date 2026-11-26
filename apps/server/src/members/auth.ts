@@ -74,6 +74,17 @@ export class MemberAuth {
     return member;
   }
 
+  /**
+   * Who a sign-in with `name` tries to be, for the sign-in throttle: the member's id, or the
+   * name itself when nobody has it (failures for it still count, and nothing clears them).
+   */
+  signInTarget(name: string | undefined): string {
+    const owner = this.members.owner();
+    const wanted = name?.trim();
+    if (!wanted || wanted.toLowerCase() === owner.name.toLowerCase()) return owner.id;
+    return this.members.findPersonByName(wanted)?.id ?? `name:${wanted.toLowerCase()}`;
+  }
+
   /** A member's signed-in devices. */
   devices(memberId: string, currentSessionId: string | null): RemoteDevice[] {
     return this.network
@@ -107,7 +118,7 @@ export class MemberAuth {
       this.network.recordFailedSignIn(address, "invalid agent token", proxy !== undefined);
       return { refused: 401, message: "Missing or invalid CodeDen agent token" };
     }
-    this.tokenFailures.succeed(address);
+    // A good token clears nothing: bad ones are guesses at other tokens, and only age out.
     const rate = this.rate.take(verified.tokenId);
     if (!rate.allowed) {
       return {

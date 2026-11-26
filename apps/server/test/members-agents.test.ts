@@ -271,6 +271,19 @@ describe("connected agents (§C.1, §C.3)", () => {
     }
     expect(good).toEqual([200, 200, 200, 429]);
   });
+
+  it("never resets the bad-token throttle when a good token is used", async () => {
+    const e = await startMembersEnv();
+    env = e;
+    const bot = await e.agent({ name: "bot", role: "viewer" });
+    const bad = { bearer: `cda_${"y".repeat(43)}` };
+    const from = "198.51.100.3";
+    const call = async (as: { bearer: string }) =>
+      (await e.remote("/api/members/me", { as, from })).status;
+    const statuses = [await call(bad), await call(bad), await call(bot.as as { bearer: string })];
+    statuses.push(await call(bad), await call(bad));
+    expect(statuses).toEqual([401, 401, 200, 401, 429]);
+  });
 });
 
 describe("AgentRateLimiter", () => {

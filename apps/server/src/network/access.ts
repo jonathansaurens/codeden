@@ -94,14 +94,18 @@ export class NetworkAccess {
     };
   }
 
-  failSignIn(client: SignInClient): void {
-    this.limiter.fail(this.limiterKey(client));
+  /** A failed attempt at `target` (a member signing in; null for an invite secret). */
+  failSignIn(client: SignInClient, target: string | null = null): void {
+    this.limiter.fail(this.limiterKey(client), target);
     if (client.viaProxy) this.proxyLimiter.fail("proxy");
   }
 
-  /** A correct password clears the device's own failures, never the shared count. */
-  succeedSignIn(client: SignInClient): void {
-    this.limiter.succeed(this.limiterKey(client));
+  /**
+   * A correct password for `target` clears the device's failures for that target only, never
+   * other members' (guessing at them goes on counting) nor the shared count.
+   */
+  succeedSignIn(client: SignInClient, target: string): void {
+    this.limiter.succeed(this.limiterKey(client), target);
   }
 
   private limiterKey(client: SignInClient): string {
