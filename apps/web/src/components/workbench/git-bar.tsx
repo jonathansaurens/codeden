@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useClient } from "@/lib/api";
+import { useCanOnSession } from "@/lib/members";
 import { isNotGitRepo } from "@/lib/session-workspace";
 import { useLayoutStore } from "@/stores/layout";
 import { useAskForPullRequest, usePullRequestOffer } from "./open-pr";
@@ -47,6 +48,8 @@ export function GitBar({ sessionId, title }: { sessionId: string; title: string 
   const askForPr = useAskForPullRequest(sessionId);
   const openTab = useLayoutStore((s) => s.openRightTab);
   const status = useGitStatus(sessionId);
+  // Commit, push and asking for a pull request change the branch: Operators only (§B.3).
+  const mayAct = useCanOnSession("operator", sessionId);
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["git-status", sessionId] });
     void queryClient.invalidateQueries({ queryKey: ["diff", sessionId] });
@@ -88,25 +91,29 @@ export function GitBar({ sessionId, title }: { sessionId: string; title: string 
       )}
       <span className="shrink-0">{changed === 0 ? "clean" : `${changed} uncommitted`}</span>
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={changed === 0}
-          onClick={() => {
-            setMessage((m) => m || title);
-            setOpen(true);
-          }}
-        >
-          <GitCommitHorizontal /> Commit
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={push.isPending || !data.branch}
-          onClick={() => push.mutate()}
-        >
-          <ArrowUp /> {push.isPending ? "Pushing…" : "Push"}
-        </Button>
+        {mayAct && (
+          <>
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={changed === 0}
+              onClick={() => {
+                setMessage((m) => m || title);
+                setOpen(true);
+              }}
+            >
+              <GitCommitHorizontal /> Commit
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={push.isPending || !data.branch}
+              onClick={() => push.mutate()}
+            >
+              <ArrowUp /> {push.isPending ? "Pushing…" : "Push"}
+            </Button>
+          </>
+        )}
         {offer.pr ? (
           <Button
             size="xs"
@@ -119,7 +126,8 @@ export function GitBar({ sessionId, title }: { sessionId: string; title: string 
         ) : offer.requested ? (
           <PrRequestedButton requested={offer.requested} size="xs" variant="ghost" />
         ) : (
-          offer.canAsk && (
+          offer.canAsk &&
+          mayAct && (
             <Button
               size="xs"
               variant="ghost"

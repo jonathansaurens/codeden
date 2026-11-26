@@ -16,6 +16,7 @@ import { StatusDot } from "@/components/common/status-dot";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useCan } from "@/lib/members";
 import { splitPinned } from "@/lib/project-order";
 import { useSnapshot } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -74,6 +75,8 @@ export function Sidebar({ width, onClose }: { width: number | string; onClose?: 
   const toggleSidebar = useLayoutStore((s) => s.toggleSidebar);
   const openPalette = useUiStore((s) => s.setPaletteOpen);
   const openAddProject = useUiStore((s) => s.setAddProjectOpen);
+  // Adding projects and first-run setup are the server's own settings: Owners only (§B.3).
+  const isOwner = useCan("owner", null);
 
   const inbox = data?.inbox.filter((i) => i.status === "open") ?? [];
   const urgent = inbox.some((i) => i.kind === "approval" || i.kind === "question");
@@ -188,20 +191,22 @@ export function Sidebar({ width, onClose }: { width: number | string; onClose?: 
           <section aria-label="Projects" className="flex flex-col gap-1">
             <div className={cn("flex h-7 items-center pl-2", pinned.length > 0 && "mt-2")}>
               <SectionLabel>Projects</SectionLabel>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="ml-auto text-muted-foreground"
-                    aria-label="Add project"
-                    onClick={() => openAddProject(true)}
-                  >
-                    <Plus />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Add a project</TooltipContent>
-              </Tooltip>
+              {isOwner && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="ml-auto text-muted-foreground"
+                      aria-label="Add project"
+                      onClick={() => openAddProject(true)}
+                    >
+                      <Plus />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Add a project</TooltipContent>
+                </Tooltip>
+              )}
             </div>
             <SortableProjectGroup
               projects={others}
@@ -209,7 +214,7 @@ export function Sidebar({ width, onClose }: { width: number | string; onClose?: 
               label="Projects"
             />
           </section>
-          {data && data.projects.length === 0 && (
+          {isOwner && data && data.projects.length === 0 && (
             <button
               type="button"
               onClick={() => openAddProject(true)}
@@ -218,7 +223,7 @@ export function Sidebar({ width, onClose }: { width: number | string; onClose?: 
               <FolderPlus className="size-4" /> Add your first project
             </button>
           )}
-          {data && (
+          {isOwner && data && (
             <Link
               to="/setup"
               className="mt-2 px-2 text-3xs text-muted-foreground/60 hover:text-muted-foreground"

@@ -21,7 +21,9 @@ export function sessionMenuEntries(
 ): RowMenuEntry[] {
   const entries: RowMenuEntry[] = [
     { label: "Open", icon: <ExternalLink />, onSelect: actions.open },
-    { label: "Rename", icon: <Pencil />, onSelect: startRename, keepFocus: true },
+    ...(actions.canChange
+      ? [{ label: "Rename", icon: <Pencil />, onSelect: startRename, keepFocus: true }]
+      : []),
     { label: "Copy link", icon: <Link2 />, onSelect: () => void actions.copyLink() },
     {
       label: "Copy as Markdown",
@@ -37,6 +39,7 @@ export function sessionMenuEntries(
     },
   ];
   if (actions.canStop) entries.push({ label: "Stop", icon: <Square />, onSelect: actions.stop });
+  if (!actions.canChange) return entries;
   entries.push(
     "separator",
     actions.archived

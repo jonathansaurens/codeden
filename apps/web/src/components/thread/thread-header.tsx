@@ -347,7 +347,7 @@ export function ThreadHeader({ session, running }: { session: Session; running: 
                 </DropdownMenuItem>
               </>
             )}
-            {session.role === "agent" && (
+            {session.role === "agent" && actions.canChange && (
               <>
                 <DropdownMenuSeparator />
                 {actions.archived ? (

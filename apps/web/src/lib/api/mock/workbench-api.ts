@@ -196,7 +196,7 @@ export function workbenchApi(world: MockWorld): WorkbenchApi {
     updates: mockUpdatesApi(),
     network: mockNetworkApi(),
     auth: mockAuthApi(),
-    members: mockMembersApi(),
+    members: mockMembersApi(() => world.snapshot.projects.map((p) => p.id)),
     loginCommand: (tool) => {
       if (tool === "codex") codexFixed = true;
       const command = {

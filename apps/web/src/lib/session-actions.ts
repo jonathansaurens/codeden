@@ -12,6 +12,7 @@ import { useUiStore } from "@/stores/ui";
 import { useClient } from "./api";
 import { copyWithFeedback, notifyCopyFailed } from "./copy";
 import { saveMarkdown } from "./download";
+import { useCan } from "./members";
 import { platform } from "./platform";
 import { useProject, useSnapshotData } from "./queries";
 import {
@@ -260,7 +261,10 @@ export function useSessionActions(session: Session) {
   const setHandoff = useUiStore((s) => s.setHandoff);
   const blocked = useHandoffBlocked(session);
   const setReview = useUiStore((s) => s.setReview);
-  const reviewable = canReview(session);
+  // Operators change sessions; Viewers only watch and copy (§B.3). Automations are the server's.
+  const mayAct = useCan("operator", session.projectId ?? null);
+  const mayAutomate = useCan("owner", null);
+  const reviewable = mayAct && canReview(session);
   const notReviewable = useReviewBlocked(session);
 
   return {
@@ -277,7 +281,7 @@ export function useSessionActions(session: Session) {
     copyMarkdown: () => exportMarkdown.mutate("copy"),
     /** Download the transcript as a `.md` file. */
     downloadMarkdown: () => exportMarkdown.mutate("download"),
-    canMakeAutomation: canMakeAutomation(session),
+    canMakeAutomation: mayAutomate && canMakeAutomation(session),
     /** Open the New automation editor prefilled from this session; nothing is saved yet. */
     makeAutomation: () => {
       if (!session.projectId) return;
@@ -287,18 +291,20 @@ export function useSessionActions(session: Session) {
         search: { session: session.id },
       });
     },
-    canStop: canStop(session),
+    canStop: mayAct && canStop(session),
     stop: () => stop.mutate(),
     archived: Boolean(session.archivedAt),
+    /** May archive, unarchive and rename it (an Operator on its project). */
+    canChange: mayAct,
     archive: () => archive.mutate(false),
     unarchive: () => unarchive.mutate(),
     /** The provider can fork this session's conversation: show the Fork action. */
-    canFork: fork.canFork,
+    canFork: mayAct && fork.canFork,
     /** Why Fork is disabled right now (null when it can run). */
     forkBlocked: fork.blocked,
     fork: () => fork.fork(),
     /** Agent sessions can be handed off to any provider: show the Hand off action. */
-    canHandoff: session.role === "agent",
+    canHandoff: mayAct && session.role === "agent",
     /** Why Hand off is disabled right now (null when it can run). */
     handoffBlocked: session.role === "agent" ? blocked : null,
     /** Open the handoff dialog, with `provider` chosen when given. */

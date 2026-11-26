@@ -14,6 +14,7 @@ const startedBy = { user: "You", orchestrator: "Orchestrator", pm: "PM", automat
 /** Unarchive from the list; sits above the row's stretched link. */
 function UnarchiveButton({ session }: { session: Session }) {
   const actions = useSessionActions(session);
+  if (!actions.canChange) return null;
   return (
     <Button
       size="xs"

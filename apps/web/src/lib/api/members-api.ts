@@ -72,8 +72,11 @@ export function httpMembersApi(http: Fetcher): MembersApi {
   };
 }
 
-/** The mock is a single-user install: the owner alone. */
-export function mockMembersApi(): MembersApi {
+/**
+ * The mock is a single-user install: the owner alone, Owner on every project `projectIds`
+ * names (as the server's `me` lists each project the caller may see).
+ */
+export function mockMembersApi(projectIds: () => string[] = () => []): MembersApi {
   const at = new Date().toISOString();
   let members: Member[] = [
     {
@@ -103,7 +106,7 @@ export function mockMembersApi(): MembersApi {
   return {
     me: async () => ({
       member: find(OWNER_MEMBER_ID),
-      projectRoles: {},
+      projectRoles: Object.fromEntries(projectIds().map((id) => [id, "owner" as const])),
       globalRole: "owner",
       team: members.length > 1,
     }),

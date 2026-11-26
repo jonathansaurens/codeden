@@ -2,6 +2,7 @@ import type { Session } from "@codeden/contracts";
 import { GitFork } from "lucide-react";
 import { useId } from "react";
 import { toast } from "sonner";
+import { useCan } from "@/lib/members";
 import { useSession } from "@/lib/queries";
 import { useForkSession } from "@/lib/session-actions";
 import type { TimelineRow } from "@/lib/transcript/timeline";
@@ -26,7 +27,9 @@ export const forkableTurn = (session: Session, row: TurnEnd) =>
  */
 export function ForkFromHere({ sessionId, row }: { sessionId: string; row: TurnEnd }) {
   const session = useSession(sessionId);
-  if (!session || !forkableTurn(session, row)) return null;
+  // Forking starts a session: Operators only (§B.3).
+  const mayFork = useCan("operator", session?.projectId);
+  if (!session || !mayFork || !forkableTurn(session, row)) return null;
   return <ForkButton session={session} turnId={row.turn.id} />;
 }
 
