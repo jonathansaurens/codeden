@@ -1,4 +1,4 @@
-import { type MemberRole, roleAtLeast } from "@codeden/contracts";
+import { type MemberRole, memberGlobalRole, memberRoleOn, roleAtLeast } from "@codeden/contracts";
 import { z } from "zod";
 import { invalidInputMessage } from "../../mcp/registry";
 import type { AppServices } from "../../services/container";
@@ -58,13 +58,25 @@ export type MemberToolResult =
   | { ok: true; value: unknown }
   | { ok: false; status: 400 | 403 | 404 | 409 | 500 | 502 | 503; code: string; message: string };
 
-/** The highest role a member has anywhere: tools it can never use aren't listed. */
-function highestRole(principal: Principal): MemberRole {
+/**
+ * The highest role a member has anywhere it can act: on an existing project, or across projects.
+ * A role on a project that no longer exists counts for nothing, so tools it can never use aren't
+ * listed.
+ */
+function highestRole(principal: Principal, projectIds: readonly string[]): MemberRole {
   const { member } = principal;
   if (member.disabled) return "none";
-  return [member.role, ...Object.values(member.projectRoles)].reduce((a, b) =>
-    roleAtLeast(a, b) ? a : b,
-  );
+  return [
+    memberGlobalRole(member, projectIds),
+    ...projectIds.map((id) => memberRoleOn(member, id)),
+  ].reduce((a, b) => (roleAtLeast(a, b) ? a : b));
+}
+
+/** Can the principal ever use this tool? Its role somewhere, and approvals for agents allowed them. */
+function usable(tool: AnyMemberTool, principal: Principal, top: MemberRole): boolean {
+  if (!roleAtLeast(top, tool.need)) return false;
+  const { member } = principal;
+  return tool.name !== answerApproval.name || member.kind !== "agent" || member.mayAnswerApprovals;
 }
 
 /**
@@ -84,9 +96,9 @@ export class MemberToolRegistry {
   }
 
   list(principal: Principal): ListedMemberTool[] {
-    const top = highestRole(principal);
+    const top = highestRole(principal, authorizeContext(this.services).projectIds());
     return [...this.byName.values()]
-      .filter((t) => roleAtLeast(top, t.need))
+      .filter((t) => usable(t, principal, top))
       .map((t) => {
         const { $schema: _ignored, ...schema } = z.toJSONSchema(t.input, { io: "input" }) as Record<
           string,
@@ -107,7 +119,8 @@ export class MemberToolRegistry {
     signal: AbortSignal,
   ): Promise<MemberToolResult> {
     const tool = this.byName.get(name);
-    if (!tool || !roleAtLeast(highestRole(principal), tool.need)) {
+    const top = highestRole(principal, authorizeContext(this.services).projectIds());
+    if (!tool || !roleAtLeast(top, tool.need)) {
       return { ok: false, status: 404, code: "unknown_tool", message: `Unknown tool: ${name}` };
     }
     const parsed = tool.input.safeParse(args ?? {});
