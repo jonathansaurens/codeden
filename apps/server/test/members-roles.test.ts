@@ -271,6 +271,25 @@ describe("roles on the server (§B.3)", () => {
     expect(await status("/ws/browser?sessionId=s-p1&open=1")).toBe(101);
   });
 
+  it("answers a hidden project's inbox item like a missing one", async () => {
+    env = await startMembersEnv();
+    seedProjects(env.server, ["p1", "p2"]);
+    const hidden = env.server.services.inbox.raiseRunFailed(
+      env.server.services.sessionRepo.get("s-p2"),
+      "boom",
+      "it failed",
+    ).id;
+    const ana = await joined(env, "Ana", "operator", { p2: "none" });
+    for (const id of [hidden, "inbox:nope"]) {
+      const get = await env.remote(`/api/inbox/${id}`, { as: ana });
+      const resolve = await env.remote(`/api/inbox/${id}/resolve`, {
+        ...jsonInit("POST", { status: "dismissed" }),
+        as: ana,
+      });
+      expect([get.status, resolve.status], id).toEqual([404, 404]);
+    }
+  });
+
   it("answers 404 for resuming the factory of a project that doesn't exist", async () => {
     env = await startMembersEnv();
     const res = await env.local("/api/projects/nope/factory/resume", jsonInit("POST", {}));
