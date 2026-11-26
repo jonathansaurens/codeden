@@ -59,6 +59,7 @@ const machine: Machine = {
   sessions: 2,
   providers: [{ id: "claude", name: "Claude Code", ready: false, reason: "not signed in" }],
   resources: null,
+  reinstalled: false,
 };
 
 const resources = {
