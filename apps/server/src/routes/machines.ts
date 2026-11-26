@@ -7,10 +7,11 @@ import {
   type MachinesResponse,
   MachineWeight,
 } from "@codeden/contracts";
-import { type Context, Hono } from "hono";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { seesMachine } from "../members/machine-visibility";
 import { principalOf } from "../members/principal";
+import type { NetworkAccess } from "../network/access";
 import type { AppServices } from "../services/container";
 import { ServiceError } from "../services/errors";
 import { jsonBody, queryOf } from "./validate";
@@ -42,7 +43,32 @@ function principal(c: Context) {
  * computers with a pairing code (`connect-codes`, §D.5) and disconnect them (`disconnect`: its
  * person or an Owner, so the route is open to members and the service decides).
  */
-export function machineRoutes(s: AppServices) {
+/**
+ * The addresses a pairing command may name (§D.5): the server's trusted HTTPS origins, its own
+ * network addresses, and the address this request reached it by (its `Host`, which the security
+ * middleware checked). Anything else would send a computer, and its key, somewhere else.
+ */
+function serverAddresses(c: Context, network: NetworkAccess | undefined): Set<string> {
+  const own = [new URL(c.req.url).origin, c.req.header("origin")];
+  return new Set(
+    [
+      ...own,
+      ...(network?.store.trustedOrigins ?? []),
+      ...(network?.addresses().map((a) => a.url) ?? []),
+    ].flatMap((url) => (url ? [url.replace(/\/+$/, "")] : [])),
+  );
+}
+
+/** Only a person connects their own computer: refused before the request is read. */
+const personOnly: MiddlewareHandler = async (c, next) => {
+  const member = principal(c).member;
+  if (member.kind !== "person" || member.disabled) {
+    throw new ServiceError(403, "forbidden", "Only a person can connect their own computer");
+  }
+  await next();
+};
+
+export function machineRoutes(s: AppServices, network?: NetworkAccess) {
   return (
     new Hono()
       .get("/", async (c) => {
@@ -61,12 +87,17 @@ export function machineRoutes(s: AppServices) {
         });
       })
       // A pairing code for the caller's own computer (any person, §D.5).
-      .post("/connect-codes", jsonBody(CreateConnectCodeRequest), (c) =>
-        c.json<ConnectCodeResponse>(
-          computersOf(s).createCode(principal(c), c.req.valid("json")),
-          201,
-        ),
-      )
+      .post("/connect-codes", personOnly, jsonBody(CreateConnectCodeRequest), (c) => {
+        const req = c.req.valid("json");
+        if (!serverAddresses(c, network).has(req.serverUrl)) {
+          throw new ServiceError(
+            400,
+            "unknown_server_address",
+            "Use one of this server's own addresses (the one you reached it by, or a trusted HTTPS address)",
+          );
+        }
+        return c.json<ConnectCodeResponse>(computersOf(s).createCode(principal(c), req), 201);
+      })
       .get("/connect-codes/:id", (c) =>
         c.json<ConnectCodeStatus>(computersOf(s).codeStatus(principal(c), c.req.param("id"))),
       )

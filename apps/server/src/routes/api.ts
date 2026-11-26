@@ -88,7 +88,7 @@ export function createApi(ctx: ApiContext) {
       )
       .route("/projects", projectRoutes(s))
       .route("/execution", executionRoutes(s))
-      .route("/machines", machineRoutes(s))
+      .route("/machines", machineRoutes(s, ctx.network.network))
       .route("/projects", projectGithubRoutes(s))
       .route("/projects", projectFactoryRoutes(s))
       .route("/factory", factoryRoutes(s))
