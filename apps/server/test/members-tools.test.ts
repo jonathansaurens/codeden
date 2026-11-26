@@ -205,6 +205,8 @@ describe("member tools (§C.2)", () => {
     const bot = await env.agent({ name: "bot", role: "viewer" });
     const idle = await tool(env, bot.as, "wait_for_session", { sessionId: "s-p1", timeoutSec: 5 });
     expect(idle.body.result).toMatchObject({ status: "idle", timedOut: false });
+    // Settled: the reply comes with it (none yet in this seeded session).
+    expect(idle.body.result).toHaveProperty("lastMessage", null);
 
     setStatus(env, "s-p1", "p1", "running");
     const waiting = tool(env, bot.as, "wait_for_session", { sessionId: "s-p1", timeoutSec: 120 });

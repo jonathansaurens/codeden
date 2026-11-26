@@ -5,8 +5,10 @@ import { serverOrigin, useClient } from "@/lib/api";
 import { copyWithFeedback } from "@/lib/copy";
 
 /**
- * The address a connected agent elsewhere uses: the trusted HTTPS origin (a reverse proxy) when
- * there is one, else a network address, else this page's own.
+ * The address a connected agent uses: the trusted HTTPS origin (a reverse proxy) when there is
+ * one; else, from another device, this page's own address, which that device reaches the server
+ * by (the server's own addresses may be private to it, like a container's); else, on the server's
+ * machine, a network address, so an agent elsewhere can use it.
  */
 function useAgentServerUrl(): string {
   const client = useClient();
@@ -15,9 +17,9 @@ function useAgentServerUrl(): string {
     queryFn: () => client.network.status(),
     staleTime: 60_000,
   });
-  return (
-    data?.trustedOrigins[0] ?? data?.addresses.find((a) => a.kind !== "local")?.url ?? serverOrigin
-  );
+  if (data?.trustedOrigins[0]) return data.trustedOrigins[0];
+  if (!data || data.remote) return serverOrigin;
+  return data.addresses.find((a) => a.kind !== "local")?.url ?? serverOrigin;
 }
 
 /** Ready-to-paste setup for a new agent token (§C.2): MCP config, the CLI, and curl. */

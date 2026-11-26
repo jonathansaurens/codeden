@@ -198,7 +198,7 @@ export const WAIT_MAX_SEC = 300;
 
 export const waitForSession = defineMemberTool({
   name: "wait_for_session",
-  description: `Wait until a session is idle, finished, or needs input (a question or approval), or until the deadline (timeoutSec, at most ${WAIT_MAX_SEC}, default 60). Returns the session's status; call get_session for details. Use it to hand off work and come back.`,
+  description: `Wait until a session is idle, finished, or needs input (a question or approval), or until the deadline (timeoutSec, at most ${WAIT_MAX_SEC}, default 60). Returns the session's status and, once it settled, its last reply (lastMessage); call get_session for questions, approvals and the transcript. Use it to hand off work and come back.`,
   input: z.object({
     sessionId: z.string().min(1),
     timeoutSec: z.int().min(1).max(WAIT_MAX_SEC).optional(),
@@ -208,7 +208,11 @@ export const waitForSession = defineMemberTool({
   handler: async ({ sessionId, timeoutSec }, { services, signal }) => {
     const current = () => services.sessionRepo.get(sessionId);
     const done = (s: Session) => SETTLED.has(s.status);
-    const answer = (s: Session, timedOut: boolean) => ({ ...compactSession(s), timedOut });
+    const answer = (s: Session, timedOut: boolean) => ({
+      ...compactSession(s),
+      timedOut,
+      lastMessage: done(s) ? lastAssistantMessage(services.db, s) : null,
+    });
     if (done(current())) return answer(current(), false);
     return new Promise((resolve) => {
       const finish = (timedOut: boolean) => {
