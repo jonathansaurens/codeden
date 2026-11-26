@@ -20,7 +20,7 @@ B and C share one identity layer: a **member** is a person or an agent, with a r
 | 4 | Trust | A machine's runner is **untrusted**, like a sandbox runner (remote-runners §8): routing checks, MCP over the link, brokered GitHub credentials | Its agents have a shell on it |
 | 5 | Placement | Per project: **Home**, **a named machine** or **Automatic**; per session override; the PM can name a machine | Predictable by default, automatic when asked |
 | 6 | Automatic placement | Score each eligible machine by **preference × cores × free CPU share × free memory share**; highest wins (§A.5) | Uses live capacity, lets people bias it, never picks an overloaded machine |
-| 7 | Orchestrator and PMs | **Stay on the home runner** (remote-runners §15) | Unchanged |
+| 7 | Orchestrator and PMs | **Never balanced automatically.** The orchestrator is **personal** (one per person, private); each project has one shared PM. Each runs where its owner chooses: the server, a machine, or the person's own computer (Part D) | They hold long conversations and act with authority, so they stay put and act only as far as their person may |
 | 8 | Team hosting | A headless server, usually on a VPS, reached over HTTPS through a reverse proxy on that machine (DESIGN §15.1) | Already supported for one person |
 | 9 | Identity | **Members** (people and agents). People join by **invite link** and set their own passphrase; agents get a **token**. No external identity provider | Local-first, nothing hosted |
 | 10 | Roles | **Viewer**, **Operator**, **Owner**, server-wide with **per-project** overrides | Covers watch, work and administer |
@@ -180,6 +180,70 @@ Accept when:
 - **Approvals by agents.** An Operator agent can answer approvals on its projects only when the owner ticks **May answer approvals** for it (off by default). Questions are always allowed.
 - **Rate limits** per token (a burst limit plus a per-minute budget), and the throttling of §15.1 for failed tokens.
 - **Untrusted content.** Text from connected agents is untrusted content, like GitHub text (DESIGN §15): it reaches the PM or orchestrator as a message, never as instructions with more authority than the member's role.
+
+## Part D. Role agents: who owns them and where they run
+
+> Status: **decided 2026-11-26.** Replaces decision 7's "stay on the home runner".
+
+The orchestrator and the PMs are not like agent sessions. They hold one long conversation, they act through CodeDen's tools rather than by editing code, and what they may do depends on who asked. This part defines who they belong to, what they may do, and where they run.
+
+### D.1 Who they belong to
+
+| | Orchestrator | PM |
+|---|---|---|
+| How many | **One per person** | One per project |
+| Belongs to | The person | The project (the team) |
+| Who sees its chat | **Only its person.** Not even Owners | Everyone who can see the project |
+| Connected agents | **Get none**: they do that job themselves. They message PMs directly | Can message it (Operator) |
+
+- **A single-user install** has one person, the first owner, so nothing changes: the existing orchestrator is the first owner's.
+- **When a member is deleted**, their orchestrator is retired (stopped and archived). Its transcript stays in the database, and nobody else can open it.
+- **The orchestrator sees only its person's projects**: its project list, overview, digest and inbox leave out projects hidden from them.
+
+### D.2 What they may do: the authority of a turn
+
+Every orchestrator and PM tool call is checked against a **role**, the same way a person's request is (`authorize.ts`):
+
+- **The orchestrator** always acts as its person. An Operator's orchestrator can message PMs and start work on the projects where they're an Operator, but can't create or change projects (Owner).
+- **A PM turn** acts with **the lowest role among the people whose messages started it**. A turn that only automatic events started (notices, wake-ups, automations, GitHub) acts as an Owner of the project, as today. A message a PM received from an orchestrator counts as from that orchestrator's person.
+- **A refused tool call** tells the agent which role it needs ("Only an Owner can change automations; ask an Owner"), so it can tell the person rather than retry.
+- Tools gated this way: project create/update (Owner), automation create/update (Owner), trusted issue authors (Owner); messaging, starting, stopping and steering sessions, running automations, answering questions (Operator).
+
+### D.3 Where messages and notices go
+
+- **A PM's report goes to the orchestrator that handed it the work**: the reply to an `ask_pm`, and every report on work an orchestrator started (`startedBy.reportTo`).
+- **Anything else a PM reports** (an unprompted `message_orchestrator`, the factory digest) goes to the orchestrator of **every Owner of the project**. Informational reports never wake an orchestrator, as today.
+- Notices about sessions an orchestrator started go to that orchestrator only.
+
+### D.4 Where they run
+
+**Runs on** is a setting, never chosen automatically:
+
+| | Set by | Choices | Default |
+|---|---|---|---|
+| Orchestrator | Its person, in the orchestrator chat's ⋯ menu | **The server**, a **machine**, or **one of their own computers** | The server |
+| PM | An Owner, in the project's settings | **The server** or a **machine** (an Owner's own computer counts as a machine for this) | The server |
+
+- **Working directory:** the orchestrator runs in `<runner home>/orchestrator/<member id>`. The PM runs in the project's clone on that machine (`~/.codeden-runner/repos/<project>`), read-only and fetched before each turn. A project that isn't on GitHub can't move its PM off the server.
+- **Logins:** the agent uses the provider logins of the device it runs on. That is the point of running your orchestrator on your own computer: it uses your own subscription.
+- **Changing it** moves the role the way a provider change does (orchestration.md): the conversation is retired once no turn is running, and the next message starts a fresh one there. Notes, wake-ups, undelivered updates and queued messages carry over.
+- **When the device can't take it** (offline, or the provider isn't installed and signed in there), the turn runs on the server and the chat says why ("Your computer is offline; this turn ran on the server"). It goes back on the next turn once the device is there again. If the server can't run it either, the message waits and the chat says so.
+
+### D.5 Connecting your own computer
+
+A person's laptop usually can't be reached over SSH (it sleeps, moves between networks, sits behind NAT), so it links **out** to the server instead.
+
+- **Pairing.** Settings › Machines › **Connect this computer** (any person, not only Owners) shows a command with a single-use pairing code valid for 10 minutes: `npx -y codeden@<version> connect <server address> --code <code>`. Running it on the laptop trades the code for a **device key** stored in `~/.codeden-runner/connect.json` (mode 0600), starts a runner there and links it.
+- **The link** is a WebSocket from the laptop to `<server>/api/runner-connect`, authenticated by the device key and carrying the runner protocol unchanged. It reconnects with backoff after sleep or a network change and resumes by `seq`, like any runner link. `codeden connect --detach` keeps it running in the background; `codeden connect --stop` ends it.
+- **A personal machine.** The computer shows in Settings › Machines as "*Name*'s computer" with its owner. It is treated as untrusted, like any machine. Only its person may place work on it: their orchestrator, their own sessions, and a PM if they are an Owner. Automatic never chooses it, and other people don't see it in their pickers.
+- **Removing it:** its person or an Owner can **Disconnect** it, which revokes the device key. A member who is deleted loses their computers too.
+
+### D.6 Phases
+
+1. **D1 `fix(members): role agents act with their person's role`.** D.2 and the visibility rules of D.1, with the single shared orchestrator as it is. This closes the gap where an Operator could create projects through the orchestrator.
+2. **D2 `feat(orchestration): a personal orchestrator for each person`.** D.1 and D.3.
+3. **D3 `feat(machines): connect your own computer`.** D.5.
+4. **D4 `feat(orchestration): choose where the orchestrator and PMs run`.** D.4.
 
 ## Open questions
 
