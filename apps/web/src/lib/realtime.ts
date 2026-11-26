@@ -69,7 +69,22 @@ export function startRealtime(client: CodeDenClient, queryClient: QueryClient): 
   let unsubscribe: (() => void) | undefined;
   let stopped = false;
   conn().setSocket("connecting");
-  const offState = client.onConnectionChange((state) => conn().setSocket(state));
+  let opened = false;
+  let dropped = false;
+  const offState = client.onConnectionChange((state) => {
+    // Back after a drop: the server closes a member's sockets when their roles change (§B.3),
+    // and only owners get member events, so reload what the roles decide.
+    if (state === "open") {
+      if (dropped) {
+        void queryClient.invalidateQueries({ queryKey: ["members"] });
+        void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
+      }
+      opened = true;
+      dropped = false;
+    }
+    if (state === "closed" && opened) dropped = true;
+    conn().setSocket(state);
+  });
 
   const apply = (raw: unknown) => {
     const parsed = EventEnvelopeSchema.safeParse(raw);

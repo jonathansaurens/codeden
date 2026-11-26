@@ -175,6 +175,56 @@ describe("roles on the server (§B.3)", () => {
     }
   });
 
+  it("sends whole members only to Owners on the live event stream", async () => {
+    env = await startMembersEnv();
+    seedProjects(env.server, ["p1", "p2"]);
+    const ana = await joined(env, "Ana", "operator", { p2: "none" });
+    const omar = await env.join(await env.invite("owner"), "Omar");
+    const open = (as: Credential) =>
+      TestWsClient.open(env?.server.url ?? "", {
+        host: TEAM_HOST,
+        "x-forwarded-for": "203.0.113.7",
+        cookie: (as as { cookie: string }).cookie,
+      });
+    const anaWs = await open(ana);
+    const omarWs = await open(omar);
+    try {
+      for (const ws of [anaWs, omarWs]) {
+        ws.send({ type: "subscribe", fromSeq: env.server.store.headSeq() });
+      }
+      const bot = await env.agent({ name: "bot", role: "viewer", projectRoles: { p2: "none" } });
+      await env.local(`/api/members/${bot.id}`, jsonInit("PATCH", { name: "Bot" }));
+      env.server.store.append([
+        {
+          type: "session.updated",
+          sessionId: "s-p1",
+          payload: {
+            session: {
+              ...sampleSession,
+              id: "s-p1",
+              projectId: "p1",
+              status: "idle",
+              title: "marker",
+            },
+          },
+        },
+      ]);
+      const marker = (m: UiServerMessage) =>
+        m.type === "events" && JSON.stringify(m).includes("marker");
+      await anaWs.waitFor(marker);
+      await omarWs.waitFor(marker);
+      const types = (ws: TestWsClient) =>
+        ws.messages.flatMap((m) => (m.type === "events" ? m.events.map((e) => e.type) : []));
+      expect(types(anaWs)).not.toContain("member.created");
+      expect(types(anaWs)).not.toContain("member.updated");
+      expect(JSON.stringify(anaWs.messages)).not.toContain('"p2"');
+      expect(types(omarWs)).toEqual(expect.arrayContaining(["member.created", "member.updated"]));
+    } finally {
+      anaWs.close();
+      omarWs.close();
+    }
+  });
+
   it("gives Viewers read-only terminals: no new shells, nothing outside a session", async () => {
     env = await startMembersEnv();
     seedProjects(env.server, ["p1"]);

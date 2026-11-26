@@ -14,8 +14,6 @@ import { projectOfEntity } from "./visibility";
 /** Global events that say nothing about any project's work. */
 const NEUTRAL_EVENTS = new Set([
   "settings.updated",
-  "member.created",
-  "member.updated",
   "member.deleted",
   "projects.reordered",
   "pty.exited",
@@ -25,6 +23,9 @@ const NEUTRAL_EVENTS = new Set([
   "runner.disconnected",
   "runner.draining",
 ]);
+
+/** Events that carry a whole member, for Owners only. */
+const MEMBER_DETAIL_EVENTS = new Set(["member.created", "member.updated"]);
 
 /** A project id a domain event's payload names, if any. */
 function payloadProject(payload: unknown): string | null | undefined {
@@ -66,7 +67,12 @@ export function eventFilterFor(
     if (!sessionProjects.has(id)) sessionProjects.set(id, projectOfEntity(s, "session", id));
     return sessionProjects.get(id) ?? null;
   };
+  // A member event carries the whole member: roles, project roles (naming projects others may
+  // not see), whether it is disabled, who created it. That is the Owners' view (`GET /members`);
+  // everyone else has names from `/members/summaries`, and their own roles from `/members/me`.
+  const administers = authorize(principal, "owner", { kind: "server" }, ctx).ok;
   return (e) => {
+    if (MEMBER_DETAIL_EVENTS.has(e.type)) return administers;
     if (e.sessionId) {
       if (e.type === "session.created" || e.type === "session.updated") {
         const projectId = payloadProject(e.payload);
