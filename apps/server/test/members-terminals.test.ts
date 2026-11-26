@@ -48,6 +48,7 @@ function seedMachineSession(e: MembersEnv): void {
     createdAt: ts,
     lastSeenAt: null,
     lastError: null,
+    ownerMemberId: null,
   };
   e.server.store.append([
     { type: "runner.registered", sessionId: null, payload: { runner: machine } },
