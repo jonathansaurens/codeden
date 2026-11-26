@@ -283,6 +283,12 @@ export interface CodeDenClient {
    * it anyway).
    */
   removeMachine(id: string, opts?: { force?: boolean }): Promise<void>;
+  /**
+   * Reconnect a machine whose CodeDen data was wiped (`Machine.reinstalled`) as a new one, under
+   * the same name. Refused (409) with `machine_in_use` while sessions placed there aren't
+   * archived.
+   */
+  reconnectMachine(id: string): Promise<Machine>;
 
   /** Autonomy modes, the vision, the factory panel and kill switches (§10.1, experimental). */
   readonly factory: FactoryApi;

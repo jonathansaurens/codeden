@@ -49,6 +49,10 @@ export function machineRoutes(s: AppServices) {
       .patch("/:id", jsonBody(z.object({ weight: MachineWeight })), (c) =>
         c.json(machinesOf(s).setWeight(c.req.param("id"), c.req.valid("json").weight)),
       )
+      // A machine whose CodeDen data was wiped: removed and added again as new.
+      .post("/:id/reconnect", async (c) =>
+        c.json<AddMachineResponse>({ machine: await machinesOf(s).reconnect(c.req.param("id")) }),
+      )
       .delete("/:id", queryOf(z.object({ force: z.enum(["true"]).optional() })), async (c) => {
         await machinesOf(s).remove(c.req.param("id"), {
           force: c.req.valid("query").force === "true",

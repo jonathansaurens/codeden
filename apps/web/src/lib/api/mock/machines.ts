@@ -45,6 +45,7 @@ const vps1: Machine = {
   lastSeenAt: "2026-11-25T08:00:00.000Z",
   sessions: 0,
   resources: null,
+  reinstalled: false,
   providers: [
     { id: "claude-code", name: "Claude Code", ready: true, reason: null },
     { id: "codex", name: "Codex", ready: false, reason: "Not signed in: run `codex login` there" },
@@ -172,6 +173,28 @@ export function mockMachinesApi(world: MockWorld): MachinesMethods {
       }
       machines = machines.filter((x) => x.id !== id);
       syncRunners();
+    },
+
+    async reconnectMachine(id) {
+      const m = find(id);
+      await later(null, 1500);
+      if (m.sessions > 0) {
+        throw new ApiRequestError(
+          409,
+          "machine_in_use",
+          `${m.label} still has ${m.sessions} session${m.sessions === 1 ? "" : "s"}; archive ${m.sessions === 1 ? "it" : "them"} first`,
+        );
+      }
+      const fresh: Machine = {
+        ...m,
+        state: "connected",
+        lastError: null,
+        reinstalled: false,
+        lastSeenAt: new Date().toISOString(),
+      };
+      machines = machines.map((x) => (x.id === id ? fresh : x));
+      syncRunners();
+      return structuredClone(fresh);
     },
   };
 }

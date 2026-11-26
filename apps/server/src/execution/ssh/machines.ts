@@ -173,6 +173,7 @@ export class MachineService {
       sessions: this.sessionsOn(record).filter((s) => !s.archivedAt).length,
       providers,
       resources: client?.status.state === "connected" ? this.capacity.last(record.id) : null,
+      reinstalled: isReinstalled(record, client?.refusedJournalId ?? null),
     };
   }
 
@@ -283,6 +284,31 @@ export class MachineService {
       // A runner of another version drains and exits; the next link starts the current one.
       replaceOnMismatch: true,
     });
+  }
+
+  /**
+   * Reconnect a machine whose CodeDen data was wiped (`Machine.reinstalled`): its old record is
+   * removed, keeping the old journal id from ever being reused, and the machine is checked and
+   * added again under the same name and preference, so projects that name it keep working.
+   * Refused while sessions placed there aren't archived: they lived in the wiped data.
+   */
+  async reconnect(idOrLabel: string): Promise<Machine> {
+    const record = this.require(idOrLabel);
+    const label = record.label ?? record.id;
+    const live = this.sessionsOn(record).filter((s) => !s.archivedAt).length;
+    if (live > 0) {
+      throw new ServiceError(
+        409,
+        "machine_in_use",
+        `${label} still has ${live} session${live === 1 ? "" : "s"}; archive ${live === 1 ? "it" : "them"} first`,
+      );
+    }
+    const weight = MachineWeight.safeParse(record.weight);
+    await this.deps.hub.remove(record.id, { deleted: true });
+    this.deps.log?.(`machines: reconnecting ${label} as new`);
+    const machine = await this.add({ destination: record.sandboxRef ?? "", name: label });
+    if (!weight.success || weight.data === machine.weight) return machine;
+    return this.setWeight(machine.id, weight.data);
   }
 
   /** Change a machine's preference for automatic placement. */
@@ -403,4 +429,17 @@ export class MachineService {
         );
     }
   }
+}
+
+/**
+ * Whether a machine's runner was refused for coming back under a new journal id: its record
+ * has one, and the refused one differs (its CodeDen data was wiped).
+ */
+function isReinstalled(record: RunnerRecord, refusedJournalId: string | null): boolean {
+  return (
+    record.state !== "connected" &&
+    !!record.runnerId &&
+    !!refusedJournalId &&
+    refusedJournalId !== record.runnerId
+  );
 }

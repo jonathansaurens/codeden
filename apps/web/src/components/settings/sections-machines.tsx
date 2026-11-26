@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connection";
 import { AddMachineForm } from "./machine-add-form";
 import { PREFERENCE_HELP, PreferencePicker } from "./machine-preference";
+import { ReinstalledNotice } from "./machine-reinstalled";
 import { RemoveMachineDialog } from "./machine-remove-dialog";
 import { SettingsSection } from "./settings-ui";
 
@@ -77,8 +78,12 @@ function MachineRow({ machine }: { machine: Machine }) {
             ))}
           </div>
         )}
-        {machine.lastError && (
-          <p className="whitespace-pre-wrap text-2xs text-status-failed">{machine.lastError}</p>
+        {machine.reinstalled ? (
+          <ReinstalledNotice machine={machine} />
+        ) : (
+          machine.lastError && (
+            <p className="whitespace-pre-wrap text-2xs text-status-failed">{machine.lastError}</p>
+          )
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1">

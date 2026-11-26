@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -216,6 +216,35 @@ describe("a machine over ssh", () => {
     expect(forced.status).toBe(200);
     expect(machineRecord()?.state).toBe("deleted");
     await waitUntil(() => machine.runnerPid() === undefined);
+  });
+
+  it("is reconnected as new after its CodeDen data was wiped", async () => {
+    const before = machineRecord();
+    const client = server.runners.client(before?.id as string);
+    // Wiped: its runner stops and its data goes; the client links again and starts a new
+    // runner there, under a journal id the server has never seen for it, and refuses it.
+    await machine.stopRunner();
+    rmSync(machine.runnerHome, { recursive: true, force: true });
+    await waitUntil(() => !!client?.refusedJournalId, 30_000);
+    const listed = await api("GET", "/machines");
+    expect(listed.body.machines[0]).toMatchObject({ label: "vps-1", reinstalled: true });
+
+    const reconnected = await api("POST", "/machines/vps-1/reconnect");
+    expect(reconnected.status, JSON.stringify(reconnected.body)).toBe(200);
+    expect(reconnected.body.machine).toMatchObject({
+      label: "vps-1",
+      state: "connected",
+      reinstalled: false,
+    });
+    const after = server.runners.list().find((r) => r.backend === "ssh" && r.state !== "deleted");
+    expect(after?.id).not.toBe(before?.id);
+    expect(after?.runnerId).not.toBe(before?.runnerId);
+    expect(server.runners.list().find((r) => r.id === before?.id)?.state).toBe("deleted");
+
+    // The project still names vps-1, and its sessions run there.
+    const id = await startSession("after the wipe");
+    await waitUntil(() => replies(id).some((text) => text.includes("after the wipe")));
+    expect(server.services.sessionRepo.get(id).runnerId).toBe(after?.runnerId);
   });
 
   it("keeps one clone per project, with a worktree per session that archiving removes", async () => {

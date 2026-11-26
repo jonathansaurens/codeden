@@ -153,6 +153,12 @@ export const Machine = z.object({
   providers: z.array(MachineProvider),
   /** Its last capacity answer (§A.5); null before one, or while it can't be reached. */
   resources: HostResources.nullable().default(null),
+  /**
+   * Its runner came back with new CodeDen data (the machine was wiped or set up again), so it
+   * is refused as a different runner until it is reconnected as new
+   * (`POST /api/machines/:id/reconnect`).
+   */
+  reinstalled: z.boolean().default(false),
 });
 export type Machine = z.infer<typeof Machine>;
 

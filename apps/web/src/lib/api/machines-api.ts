@@ -6,7 +6,12 @@ import type { Fetcher } from "./http";
 /** The client's machine calls (`/api/machines`). */
 export type MachinesMethods = Pick<
   CodeDenClient,
-  "machines" | "addMachine" | "setMachineWeight" | "setHomeWeight" | "removeMachine"
+  | "machines"
+  | "addMachine"
+  | "setMachineWeight"
+  | "setHomeWeight"
+  | "removeMachine"
+  | "reconnectMachine"
 >;
 
 /**
@@ -28,6 +33,10 @@ export function httpMachinesApi(http: Fetcher): MachinesMethods {
         { weight },
         (v) => z.object({ weight: MachineWeight }).parse(v).weight,
       ),
+    reconnectMachine: (id) =>
+      http
+        .post(`${path(id)}/reconnect`, {}, (v) => AddMachineResponse.parse(v))
+        .then((r) => r.machine),
     async removeMachine(id, opts) {
       await http.call("DELETE", `${path(id)}${opts?.force ? "?force=true" : ""}`);
     },

@@ -165,6 +165,7 @@ export class RunnerClient {
   private proxyUrl: string | null = null;
   private runnerPid: number | undefined;
   private where: RunnerHostInfo | null = null;
+  private refusedId: string | null = null;
   private current: RunnerConnectionStatus = {
     state: "starting",
     runnerId: null,
@@ -187,6 +188,14 @@ export class RunnerClient {
   /** Agent-facing MCP proxy URL on the runner, once configured. */
   get mcpProxyUrl(): string | null {
     return this.proxyUrl;
+  }
+
+  /**
+   * The journal id of the last `welcome` refused (`journalIdRefusal`), until one is accepted:
+   * a machine whose CodeDen data was wiped comes back under a new id.
+   */
+  get refusedJournalId(): string | null {
+    return this.refusedId;
   }
 
   /** Where the runner runs, from its last `welcome`; null before one (or from older runners). */
@@ -340,6 +349,7 @@ export class RunnerClient {
             if (welcomed) return; // one handshake per connection
             // Refused: the connect loop shows the reason as the last error and retries.
             const refused = this.welcomeRefusal(msg);
+            this.refusedId = refused ? msg.runnerId : null;
             if (refused) return void settle(new Error(refused));
             welcomed = true;
           } else if ((msg.type === "event" || msg.type === "stream") && !welcomed) {

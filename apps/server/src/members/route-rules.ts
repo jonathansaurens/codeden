@@ -90,6 +90,7 @@ export const ROUTE_RULES: Readonly<Record<string, RouteRule>> = {
   "POST /machines": w("server"),
   "PUT /machines/home/weight": w("server"),
   "PATCH /machines/:id": w("server"),
+  "POST /machines/:id/reconnect": w("server"),
   "DELETE /machines/:id": w("server"),
 
   // GitHub

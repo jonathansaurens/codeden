@@ -176,6 +176,11 @@ the machine's build must report the same version as the server.
   shells.
 - **A provider isn't offered on the machine**: sign in to it there (`ssh -t <machine> claude`,
   then `/login`), and check Settings › Machines, which lists each provider's state.
+- **"was wiped or set up again"**: the machine's CodeDen data (`~/.codeden-runner`) is gone, for
+  example after a rebuild, so CodeDen won't treat it as the same machine (it can't tell it from a
+  different one). Click **Reconnect** under it in Settings › Machines: CodeDen checks it and adds
+  it again under the same name and preference, so projects that use it keep working. Sessions
+  placed there must be archived first; their work lived in the wiped data.
 - **The machine shows disconnected**: CodeDen retries on its own. Check that the machine is up
   and that `ssh <machine>` works; the error under the machine says what the last attempt got.
 - **Automatic never picks a machine**: open Settings › Machines and check its preference (not
