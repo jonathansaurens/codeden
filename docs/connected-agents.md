@@ -12,7 +12,7 @@ A **connected agent** is another agent (one running on your laptop, in CI, or an
 4. **May answer approvals** is off by default. Without it the agent can answer agents' questions, but approvals wait for a person.
 5. **Add agent**. The token (`cda_…`) is shown **once**, with setup snippets.
 
-Each agent's row shows its tokens with when they were last used. **Revoke** one if it leaks; **New token** issues another (old ones keep working until revoked). **Enabled** switches the agent off without deleting it.
+Each agent's row shows its tokens with when they were last used. **Revoke** one if it leaks (its open connections close at once); **New token** issues another (old ones keep working until revoked). **Enabled** switches the agent off without deleting it.
 
 ## Connect over MCP
 

@@ -191,7 +191,10 @@ export function memberRoutes(ctx: MemberRouteContext) {
       })
       .delete("/:id/tokens/:tokenId", (c) => {
         const id = c.req.param("id");
-        s.members.revokeToken(id, c.req.param("tokenId"));
+        const tokenId = c.req.param("tokenId");
+        s.members.revokeToken(id, tokenId);
+        // Its open connections (an MCP stream, a WebSocket) close too.
+        ctx.network.dropConnections({ tokenId }, requestSocket(c));
         return c.json(detail(ctx, id, null));
       })
       .delete("/:id/devices/:deviceId", (c) => {

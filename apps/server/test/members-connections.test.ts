@@ -85,6 +85,20 @@ describe("open connections follow access changes", () => {
     expect(await closesWithin(laptopWs.closed, 10_000)).toBe(true);
     expect(await closesWithin(phoneWs.closed, 200)).toBe(false);
   });
+
+  it("closes a revoked agent token's open sockets", async () => {
+    env = await startMembersEnv();
+    const bot = await env.agent({ name: "bot", role: "viewer" });
+    const botWs = await connect(env, "/ws", bot.as);
+    expect(botWs.status).toBe(101);
+    const detail = (await (await env.local("/api/members")).json()) as {
+      members: Array<{ member: { id: string }; tokens: Array<{ id: string }> }>;
+    };
+    const tokenId = detail.members.find((m) => m.member.id === bot.id)?.tokens[0]?.id;
+    await env.local(`/api/members/${bot.id}/tokens/${tokenId}`, { method: "DELETE" });
+    expect(await closesWithin(botWs.closed, 10_000)).toBe(true);
+    expect((await connect(env, "/ws", bot.as)).status).toBe(401);
+  });
 });
 
 async function idOf(e: MembersEnv, name: string): Promise<string> {
