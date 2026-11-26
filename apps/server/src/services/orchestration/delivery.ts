@@ -62,8 +62,11 @@ export class NoticeDelivery {
 
   constructor(private readonly deps: NoticeDeliveryDeps) {}
 
-  /** Prepend the status digest and the undelivered notices to a role session's input (§8.4). */
-  decorate(session: Session, input: UserInput): DecoratedInput {
+  /**
+   * Prepend the status digest and the undelivered notices to a role session's input (§8.4).
+   * `notices` are the ones the turn carries.
+   */
+  decorate(session: Session, input: UserInput): DecoratedInput & { notices?: Notice[] } {
     if (session.role === "agent") return { input };
     try {
       const parts = [this.deps.digestFor(session)];
@@ -83,6 +86,7 @@ export class NoticeDelivery {
       };
       return {
         input: { ...input, text: parts.join("\n\n") },
+        notices: pending,
         delivered: () => {
           release();
           this.deps.notices.markDelivered(ids);

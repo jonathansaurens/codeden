@@ -2,6 +2,7 @@ import type { McpTokenClaims } from "@codeden/contracts";
 import { z } from "zod";
 import type { AppServices } from "../services/container";
 import { errorMessage, ServiceError } from "../services/errors";
+import { assertAuthority, needTarget } from "./authority";
 import {
   type AnyServerTool,
   type ToolAvailabilityContext,
@@ -96,6 +97,11 @@ export class ToolRegistry {
       return { text: `${name} needs a project`, isError: true };
     }
     try {
+      if (tool.authority) {
+        const { need, action } = tool.authority;
+        const target = needTarget(tool.authority, parsed.data, caller);
+        assertAuthority(this.services, caller, need, target, action);
+      }
       const output = await tool.handler(parsed.data, {
         role: caller.role,
         caller: caller.caller,

@@ -117,6 +117,16 @@ Agents see only the tools for their role; everything else isn't listed at all. T
 
 Factory projects add a few more (see [The software factory and the dark factory](software-factory.md)).
 
+### Whose role they act with
+
+On a server shared by a [team](teams.md), the orchestrator and the PMs act with the role of the people they work for, checked by the same rules as those people's own requests:
+
+- **A turn acts for the people whose messages started it** (and anyone who steered it): the lowest role among them counts. A message the orchestrator sends a PM counts as from the person the orchestrator works for. A turn only automatic events started (notices, wake-ups, automations, GitHub) acts as an Owner of the project, as before.
+- **What needs which role:** adding and changing projects and creating, changing, pausing, resuming or skipping automations need an Owner; messaging a PM, starting, messaging and stopping sessions, running automations, answering questions, filing and triaging issues and the factory's decisions need an Operator on the project. A refused call tells the agent which role it needs ("Only an Owner can change automations; this turn acts for Otto (an Operator)"), and it tells you instead of trying again.
+- **What the orchestrator sees** leaves out the projects hidden from its person: its project list, overview, inbox and status digest.
+
+A single-user install has one person, the first owner, so nothing changes there.
+
 ### Asking and answering
 
 - **Defaults first.** Agents, PMs and the orchestrator decide routine details themselves (naming, approach, scope, provider and model), say what they assumed so you can override it, and keep going. They ask you only for destructive or irreversible steps, spending money or credentials, outward-facing actions (publishing, releases, deploys, messages to people), protected areas, or a request that can be read two very different ways.

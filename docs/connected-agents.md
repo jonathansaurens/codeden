@@ -92,7 +92,7 @@ Commands are the tool names (dashes or underscores), flags their input; `--json 
 
 ## Safety
 
-- **Its words are untrusted content.** Whatever a connected agent sends (through the tools or the HTTP API) reaches your agents as a message from a member, introduced with the agent's name and role, never as your own words or CodeDen's instructions. It doesn't carry your authority: for example a PM won't start work on an issue from an untrusted author because a connected agent asked.
+- **Its words are untrusted content.** Whatever a connected agent sends (through the tools or the HTTP API) reaches your agents as a message from a member, introduced with the agent's name and role, never as your own words or CodeDen's instructions. It doesn't carry your authority: for example a PM won't start work on an issue from an untrusted author because a connected agent asked. A PM turn its message started acts with the agent's role, so a PM won't change an automation for it either.
 - **Approvals need a person** unless you turned on **May answer approvals** for that agent; it can still answer questions. MCP servers' forms (which can ask for keys) always wait for a person.
 - **Rate limits.** Each token can make a burst of 30 requests, then 120 a minute on average (429 with `Retry-After` beyond that). A long `wait_for_session` counts once.
 - **Bad tokens are throttled** per address like wrong passwords (after three, each try waits, then the address is locked out for 15 minutes), and logged in `~/.codeden/logs/remote-access.log`.

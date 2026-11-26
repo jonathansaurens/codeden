@@ -15,6 +15,7 @@ import {
 } from "@codeden/contracts";
 import type { Db } from "../../db/client";
 import type { EventStore } from "../../events/store";
+import { type ActingFor, actingCanSee, type MemberLookup, membersOf } from "../../members/acting";
 import type { SettingsStore } from "../../settings-store";
 import type { ArtifactService } from "../artifacts";
 import { isValidTimezone, machineTimezone } from "../automations/cron";
@@ -57,6 +58,7 @@ import {
 import { Reminders } from "./reminders";
 import { RoleLimitSwitch } from "./role-limit-switch";
 import { type OrchestrationRole, RoleSessions } from "./role-sessions";
+import { TurnAuthority } from "./turn-authority";
 import { type WakeResult, WakeScheduler, type WakeSchedulerOptions } from "./wake-scheduler";
 
 export interface OrchestrationOptions {
@@ -82,6 +84,8 @@ export interface OrchestrationDeps {
   /** Saves the pasted images of a conflicting start before it is recorded. */
   artifacts: Pick<ArtifactService, "externalizeAttachments">;
   github?: GithubPort;
+  /** Members, for whom role turns act (§D.2). */
+  members: MemberLookup;
   /** The project's trusted authors, whose PR reviews count without write access. Default: none. */
   trustedAuthors?: TrustedAuthors;
   automation?: AutomationPort;
@@ -114,6 +118,8 @@ export class OrchestrationService {
   readonly wakes: WakeScheduler;
   readonly loops: LoopGuard;
   readonly reminders: Reminders;
+  /** Who each role session's turn acts for (§D.2): its tools act with their role. */
+  readonly authority: TurnAuthority;
   private readonly cards: NoticeCards;
   private readonly delivery: NoticeDelivery;
   /** Moves a role to another provider when its own hits its usage limit (§8.1). */
@@ -136,6 +142,7 @@ export class OrchestrationService {
       timezone: () => this.timezone(),
     });
     this.notices = new NoticeStore(deps.db, deps.store);
+    this.authority = new TurnAuthority(deps.repo);
     this.cards = new NoticeCards(deps.store);
     this.notes = new ProjectNotes(deps.projects);
     this.github = deps.github ?? new UnavailableGithubPort();
@@ -196,10 +203,13 @@ export class OrchestrationService {
     this.deps.sessions.setInputDecorator((session, input, from) => {
       // Who the turn is from counts once the runner takes it (the loop guard, #137).
       const turn = this.loops.beginTurn(session, from, input);
+      // Who the turn acts for (§D.2), before the digest, which shows only their projects.
+      const people = this.authority.begin(session, input, from);
       this.limits.sending(session, input, from);
       try {
         // The status digest and undelivered notices, fresh at send time (§8.4, `NoticeDelivery`).
         const decorated = this.delivery.decorate(session, input);
+        people.carry(decorated.notices ?? []);
         return {
           input: decorated.input,
           delivered: () => {
@@ -209,14 +219,19 @@ export class OrchestrationService {
           failed: (error) => {
             decorated.failed?.(error);
             turn.failed(mayHaveStarted(error));
+            people.failed(mayHaveStarted(error));
           },
         };
       } catch (error) {
         // Nothing was sent.
         turn.failed(false);
+        people.failed(false);
         throw error;
       }
     });
+    this.deps.sessions.setSteerObserver((session, input) =>
+      this.authority.steered(session, input, input.from ?? "user"),
+    );
     this.delivery.rearm();
     this.reminders.start();
   }
@@ -227,6 +242,32 @@ export class OrchestrationService {
     this.loops.dispose();
     this.delivery.dispose();
     this.reminders.dispose();
+  }
+
+  // ---------------------------------------------------------------- authority
+
+  /**
+   * Who a role session's current turn acts for (§D.2): the people whose messages are in it.
+   * A PM turn only automatic events started is CodeDen's own (`null`, an Owner of the project);
+   * the orchestrator acts for a person always, the first owner when nobody wrote to it.
+   */
+  actingFor(session: Session): ActingFor {
+    if (session.role === "agent") return null;
+    const { members } = this.authority.of(session.id);
+    if (members.length > 0) return membersOf(this.members(), members);
+    return session.role === "orchestrator" ? [this.members().owner()] : null;
+  }
+
+  /** May the people a role session's turn acts for see this project? */
+  visibleTo(session: Session): (projectId: string) => boolean {
+    const people = this.actingFor(session);
+    if (people === null) return () => true;
+    const ctx = { projectIds: () => this.deps.projects.list().map((p) => p.id) };
+    return (projectId) => actingCanSee(people, projectId, ctx);
+  }
+
+  private members(): MemberLookup {
+    return this.deps.members;
   }
 
   // ---------------------------------------------------------------- digest
@@ -246,12 +287,16 @@ export class OrchestrationService {
     });
   }
 
-  overview(): Overview {
-    const projects = this.deps.projects.list().map((p) => this.projectStatus(p.id));
+  /** Every project rolled up; `visible` leaves out the projects someone can't see (§D.1). */
+  overview(visible: (projectId: string) => boolean = () => true): Overview {
+    const projects = this.deps.projects
+      .list()
+      .filter((p) => visible(p.id))
+      .map((p) => this.projectStatus(p.id));
     const pmMessages = this.notices
       .undelivered("orchestrator", null)
       .flatMap((n) =>
-        n.type === "pm.message" && n.data.informational
+        n.type === "pm.message" && n.data.informational && (!n.projectId || visible(n.projectId))
           ? [{ projectId: n.projectId, text: n.data.text, at: n.createdAt }]
           : [],
       );
@@ -279,7 +324,7 @@ export class OrchestrationService {
       );
     }
     return renderOverviewDigest(
-      { ...this.overview(), pmMessages: [] },
+      { ...this.overview(this.visibleTo(session)), pmMessages: [] },
       Date.now(),
       this.timezone(),
     );
@@ -315,12 +360,13 @@ export class OrchestrationService {
     await this.roles.ensure("pm", projectId);
     const forUser = this.loops.humanLed(origin);
     if (!this.loops.mayDeliver(projectId, origin)) {
-      return { status: "held", until: this.loops.hold(projectId, origin.sessionId, text) };
+      const until = this.loops.hold(projectId, origin.sessionId, text, origin.onBehalfOf);
+      return { status: "held", until };
     }
     return this.sendToRole(
       "pm",
       projectId,
-      relayed(messageFrom("orchestrator", text), forUser),
+      relayed(messageFrom("orchestrator", text), forUser, origin.onBehalfOf),
       "queue",
       "orchestrator",
     );
@@ -345,9 +391,11 @@ export class OrchestrationService {
       "",
       "Answer in your final message of this turn: it is returned to the orchestrator directly.",
     ].join("\n");
+    const { onBehalfOf } = opts.origin;
     if (!this.loops.mayDeliver(projectId, opts.origin)) {
       this.asks.register(askId, target, { detached: true });
-      return { status: "held", until: this.loops.hold(projectId, opts.origin.sessionId, text) };
+      const until = this.loops.hold(projectId, opts.origin.sessionId, text, onBehalfOf);
+      return { status: "held", until };
     }
     this.asks.register(askId, target);
     const answer = this.asks.wait(
@@ -358,7 +406,7 @@ export class OrchestrationService {
     await this.deps.sessions.send(
       pm.id,
       {
-        input: relayed({ text, attachments: [], from: "orchestrator" }, forUser),
+        input: relayed({ text, attachments: [], from: "orchestrator" }, forUser, onBehalfOf),
         whenBusy: "queue",
       },
       "orchestrator",
@@ -493,10 +541,15 @@ export class OrchestrationService {
 
 /**
  * An orchestrator message to a PM, marked when it passes on the user's own request (a turn the
- * user started), so the PM's turn carries the user's authority (`LoopGuard.turnStarted`).
+ * user started), so the PM's turn carries the user's authority (`LoopGuard.turnStarted`), and
+ * with the person the orchestrator acts for, whose role the PM's turn acts with (§D.2).
  */
-function relayed(input: UserInput, forUser: boolean): UserInput {
-  return forUser ? { ...input, relayedForUser: true } : input;
+function relayed(input: UserInput, forUser: boolean, onBehalfOf?: string): UserInput {
+  return {
+    ...input,
+    ...(forUser ? { relayedForUser: true } : {}),
+    ...(onBehalfOf ? { onBehalfOf } : {}),
+  };
 }
 
 /** Scheduler key of a notice target. */

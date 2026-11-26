@@ -110,6 +110,13 @@ export const UserInput = z.object({
    * message stored before members existed.
    */
   author: Actor.optional(),
+  /**
+   * Set by CodeDen on a message an orchestrator sends to a PM: the member (a person) the
+   * orchestrator acts for. The PM's turn it starts acts with that person's role
+   * (`docs/machines-teams-and-agents.md` §D.2), and reports on it go back to that person's
+   * orchestrator (§D.3). Absent on every other message.
+   */
+  onBehalfOf: Id.optional(),
 });
 export type UserInput = z.infer<typeof UserInput>;
 /** Input shape accepted before defaults are applied (`attachments` optional). */

@@ -198,6 +198,11 @@ export const Notice = z.discriminatedUnion("type", [
       fromSessionId: Id.nullable(),
       /** The message as the orchestrator wrote it (an `ask_pm` question carries its marker). */
       text: z.string(),
+      /**
+       * The person the orchestrator acts for (`UserInput.onBehalfOf`): the PM's turn that
+       * delivers it acts with their role. Absent on notices stored before it was recorded.
+       */
+      onBehalfOf: Id.optional(),
     }),
   }),
   z.object({

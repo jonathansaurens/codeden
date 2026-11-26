@@ -8,6 +8,7 @@ export const commentOnIssueTool = defineTool({
   description:
     "Post a Markdown comment on a GitHub issue or pull request in your project. `number` defaults to your session's issue, then its PR. Keep it short and factual; use attach_evidence for screenshots and test output.",
   roles: ["agent", "pm"],
+  authority: { need: "operator", action: "comment on issues" },
   scope: "project",
   isAvailable: inGithubProject,
   input: z.object({

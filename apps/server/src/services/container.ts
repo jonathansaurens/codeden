@@ -411,6 +411,7 @@ export function createServices(opts: ServicesOptions): AppServices {
   const orchestration = new OrchestrationService({
     db: opts.db,
     store: opts.store,
+    members,
     repo: sessionRepo,
     sessions,
     projects,

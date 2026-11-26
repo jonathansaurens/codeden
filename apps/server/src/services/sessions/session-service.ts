@@ -130,6 +130,8 @@ export class SessionService {
   readonly launching = new Map<string, Promise<void>>();
   /** Rewrites a turn's input at send time (the orchestration status digest, §8.4). */
   private inputDecorator: InputDecorator | undefined;
+  /** Told about each message that steered a running turn (who a role's turn acts for, §D.2). */
+  private steerObserver: ((session: Session, input: UserInput) => void) | undefined;
   private checkRuns: CheckRuns | undefined;
   private readonly holds: OutboxHolds;
   /**
@@ -153,6 +155,11 @@ export class SessionService {
 
   setInputDecorator(fn: InputDecorator): void {
     this.inputDecorator = fn;
+  }
+
+  /** Follow the messages that steer running turns (`input.from` says who sent each). */
+  setSteerObserver(fn: (session: Session, input: UserInput) => void): void {
+    this.steerObserver = fn;
   }
 
   /** The checks loop (§9 Project checks): Stop and new messages end a check run. */
@@ -451,6 +458,7 @@ export class SessionService {
       .catch((e) => {
         throw toServiceError(e);
       });
+    this.steerObserver?.(session, raw);
   }
 
   async interrupt(id: string): Promise<void> {

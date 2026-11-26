@@ -36,6 +36,13 @@ export const createAutomation = defineTool({
   description:
     "Create an automation for this project (or all projects with allProjects: true): a trigger (cron schedule, event or manual), an action (start an agent session with a prompt, message you, or triage), optional guards and work key. Validated like automation files. It is always created OFF: tell the user, who switches it on in Automations. Use permissions (action.autonomy) no higher than the job needs; 'read_only' for audits and reports.",
   roles: ["pm"],
+  // One for every project is the server's: an Owner server-wide (as `POST /automations`).
+  authority: {
+    need: "owner",
+    action: "change automations",
+    on: (i, caller) =>
+      i.allProjects ? { kind: "server" } : { kind: "project", projectId: caller.projectId },
+  },
   scope: "project",
   input: z.object({
     ...fields,
@@ -64,6 +71,7 @@ export const updateAutomation = defineTool({
   description:
     "Change an automation of this project that lives in CodeDen (not a .md file): any of name, description, trigger, action, guards or work key. Validated like automation files. Changing the trigger, action or guards of an automation that is on switches it OFF: tell the user, who reviews the change (it is in their inbox) and switches it on again in Automations. Renaming or a new description keeps it as it is. File-based automations are edited in their file; automations for all projects only by the user.",
   roles: ["pm"],
+  authority: { need: "owner", action: "change automations" },
   scope: "project",
   input: z.object({
     automationId: z.string().min(1),

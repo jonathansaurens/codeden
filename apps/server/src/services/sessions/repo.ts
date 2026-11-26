@@ -69,6 +69,12 @@ export type StoredStartMeta = SessionStartMeta & {
    */
   turnFromUser?: boolean;
   /**
+   * On an orchestrator or PM session: the people whose messages are in its current turn, and
+   * the people whose orchestrators sent some of them (`TurnAuthority`), so the turn's tools act
+   * with their role after a server restart too. Absent: never recorded (an automatic turn).
+   */
+  turnPeople?: { members: string[]; orchestrators: string[] };
+  /**
    * On an orchestrator or PM session: the role's provider setting (`settings.providers.<role>
    * .provider`, `auto` included) the session was started under, or the latest value it was
    * checked against. The role moves to a fresh session only when the setting differs from it
