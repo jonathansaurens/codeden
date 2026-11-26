@@ -1,7 +1,7 @@
 import {
   type ItemRecord,
   type Role,
-  StartSessionResponse,
+  StartSessionRequest,
   ThreadItemsPage,
 } from "@codeden/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -57,17 +57,16 @@ describe("orchestration loop guard (§8.2) with a real runner", () => {
 
   it("delivers a user's request to a PM that was only woken by its own sessions' reports", async () => {
     // The PM's own agent session reports twice: each finished turn wakes the PM.
-    const started = StartSessionResponse.parse(
-      (
-        await h.api("POST", "/sessions", {
-          projectId: h.projectId,
-          provider: "fake",
-          purpose: "Background work",
-          workKey: "issue:11",
-          startedBy: { kind: "pm", id: pmId },
-          input: { text: "work" },
-        })
-      ).body,
+    // Work the PM started is CodeDen's to record: started through the service, not the API.
+    const started = await h.server.services.sessions.start(
+      StartSessionRequest.parse({
+        projectId: h.projectId,
+        provider: "fake",
+        purpose: "Background work",
+        workKey: "issue:11",
+        startedBy: { kind: "pm", id: pmId },
+        input: { text: "work" },
+      }),
     );
     if (started.status !== "started") throw new Error("expected started");
     await waitUntil(async () => ((await wakesOf(pmId)) >= 1 ? true : undefined), 30_000);

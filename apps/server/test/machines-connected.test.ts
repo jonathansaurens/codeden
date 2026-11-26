@@ -216,8 +216,9 @@ describe("pairing a computer", () => {
 
   it("offers a computer that has never linked as a place for its person's orchestrator", async () => {
     const bob = await operator("Bob");
+    // The address his browser reached the server by.
     const code = await remote(bob.cookie, "POST", "/machines/connect-codes", {
-      serverUrl: server.url,
+      serverUrl: `http://${TEAM_HOST}`,
     });
     expect(code.status, JSON.stringify(code.body)).toBe(201);
     const pair = await paired(await computer.pair(server.url, code.body.code));
