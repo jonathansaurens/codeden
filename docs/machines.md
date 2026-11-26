@@ -129,11 +129,13 @@ When the server is upgraded, the link stops and says which version to run `coded
 **The server must be reachable from the laptop**: with network access on (Settings › Network) on
 the same network or VPN, or behind HTTPS through a reverse proxy (DESIGN §15.1). The pairing
 and link endpoints need no sign-in, since the code and the key are their credentials; bad codes
-and keys are throttled per address like failed sign-ins, and written to the security log.
+and keys are throttled per address like failed sign-ins, and written to the security log. A
+valid code or key is never throttled.
 
 **It is yours.** Only you can place work on your computer: your own sessions (pick it in the New
 session form's **Runs on**), and work nobody in particular started (a PM, an automation) only in
-projects where you are an Owner. Other people don't see it in their pickers, the server refuses
+projects where you are an Owner. Other people don't see it at all (only you and the server's
+Owners find it in Settings › Machines and the pickers), the server refuses
 anyone else's session there, Automatic never chooses it, and a project's "Where sessions run"
 can't name it. Like every machine, its runner is untrusted: it only speaks for the sessions
 placed on it.

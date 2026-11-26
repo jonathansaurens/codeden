@@ -11,6 +11,7 @@ import {
 } from "@codeden/contracts";
 import type { AppServices } from "../services/container";
 import { type AuthorizeContext, canSee, roleFor } from "./authorize";
+import { seesMachine } from "./machine-visibility";
 import { type Privacy, privacyFor } from "./privacy";
 import type { EntityKind, ResponseFilter } from "./route-rules";
 
@@ -133,6 +134,7 @@ export function filterSnapshot(
       canSee(member, a.target.type === "project" ? a.target.projectId : null, ctx),
     ),
     scheduled: snapshot.scheduled.filter((r) => canSee(member, r.projectId ?? null, ctx)),
+    runners: snapshot.runners.filter((r) => seesMachine(member, r.ownerMemberId)),
     roleSessions: snapshot.roleSessions
       ? {
           ...snapshot.roleSessions,

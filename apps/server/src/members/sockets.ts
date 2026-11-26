@@ -1,5 +1,6 @@
 import type { Member, Notice, RawEventEnvelope, Session, TerminalQuery } from "@codeden/contracts";
 import { roleAtLeast } from "@codeden/contracts";
+import { listRunnerRecords } from "../events/runner-projection";
 import type { AppServices } from "../services/container";
 import {
   type AuthorizeContext,
@@ -9,6 +10,7 @@ import {
   ownsEverything,
   roleFor,
 } from "./authorize";
+import { seesRunnerEvent } from "./machine-visibility";
 import type { Principal } from "./principal";
 import { isOwnOrchestrator, isPrivateSession, orchestratorMember } from "./privacy";
 import { projectOfEntity } from "./visibility";
@@ -121,6 +123,9 @@ export function eventFilterFor(
   if (owner && !s.members.isTeam()) return undefined;
   const hidden = privateSessions(s, member);
   if (owner) return (e) => !privateEvent(e, member, hidden);
+  // Someone else's own computer is theirs and the server Owners' to see (§D.5).
+  const ownerOfRecord = (id: string) =>
+    listRunnerRecords(s.db).find((r) => r.id === id)?.ownerMemberId;
   const ctx = authorizeContext(s);
   const sessionProjects = new Map<string, string | null>();
   const projectOfSession = (id: string) => {
@@ -154,7 +159,7 @@ export function eventFilterFor(
       }
       return seesSession(e.sessionId);
     }
-    if (NEUTRAL_EVENTS.has(e.type)) return true;
+    if (NEUTRAL_EVENTS.has(e.type)) return seesRunnerEvent(member, e, ownerOfRecord);
     const payload = e.payload as {
       sessionId?: unknown;
       notice?: Notice;

@@ -9,6 +9,7 @@ import {
 } from "@codeden/contracts";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
+import { seesMachine } from "../members/machine-visibility";
 import { principalOf } from "../members/principal";
 import type { AppServices } from "../services/container";
 import { ServiceError } from "../services/errors";
@@ -50,8 +51,10 @@ export function machineRoutes(s: AppServices) {
           machines.list(),
           machines.homeResources(),
         ]);
+        // Someone's own computer: theirs and the server Owners' to see (§D.5).
+        const member = principalOf(c)?.member;
         return c.json<MachinesResponse>({
-          machines: list,
+          machines: list.filter((m) => seesMachine(member, m.owner?.id)),
           homeWeight: machines.homeWeight(),
           homeResources,
           command: machines.command,
