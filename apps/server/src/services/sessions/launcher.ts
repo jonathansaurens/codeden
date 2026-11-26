@@ -423,8 +423,15 @@ export class SessionLauncher {
       // The orchestrator and PMs never write project code (§11.2). Agent sessions at the
       // `read_only` level carry it in `autonomy`, so it can change live.
       readOnly: session.role !== "agent",
-      codedenHome: this.deps.home,
-      artifactsDir: this.deps.artifacts?.sessionDir(session.id),
+      // CodeDen's home and the artifacts folder are paths on this disk. A runner that doesn't
+      // share it (a machine, a person's own computer, a sandbox) uses its own home instead, which
+      // it fills in itself: this one may not even exist there.
+      ...(clonesWorkspaces(runner)
+        ? {}
+        : {
+            codedenHome: this.deps.home,
+            artifactsDir: this.deps.artifacts?.sessionDir(session.id),
+          }),
       mcpServers,
       ...(ownBranch(session) ? { ownBranch: ownBranch(session) } : {}),
       ...(project?.agentCiEnv === false ? { ciEnv: false } : {}),

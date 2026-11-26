@@ -4,6 +4,7 @@ import type {
   RunnerCommandOf,
   RunnerEvent,
   RunnerSessionInfo,
+  SessionOptions,
 } from "@codeden/contracts";
 import {
   type ProviderRegistry,
@@ -44,6 +45,11 @@ const COMPACTING =
 
 export interface SessionHostOptions {
   log?: (message: string) => void;
+  /**
+   * This runner's home. A session opened without `codedenHome` (the server's home is on another
+   * disk) keeps its private MCP config and policy files here instead.
+   */
+  home?: string;
 }
 
 /**
@@ -64,6 +70,12 @@ export class SessionHost {
     private readonly emit: (event: RunnerEvent) => void,
     private readonly opts: SessionHostOptions = {},
   ) {}
+
+  /** The options with this runner's home as CodeDen's home when the server sent none. */
+  private withHome(options: SessionOptions): SessionOptions {
+    if (options.codedenHome || !this.opts.home) return options;
+    return { ...options, codedenHome: this.opts.home };
+  }
 
   list(): RunnerSessionInfo[] {
     return [...this.sessions.entries()].map(([sessionId, h]) => ({
@@ -111,7 +123,7 @@ export class SessionHost {
       this.emit({ kind: "session.process", sessionId: cmd.sessionId, state: "starting" });
       let opened: ProviderSession;
       try {
-        opened = await adapter.openSession(agentSessionOptions(cmd.options));
+        opened = await adapter.openSession(agentSessionOptions(this.withHome(cmd.options)));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         // How the provider classified it (a CLI too old, not signed in): the server keeps new

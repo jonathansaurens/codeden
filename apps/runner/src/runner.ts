@@ -192,7 +192,7 @@ export async function startRunner(opts: StartRunnerOptions): Promise<RunningRunn
     if (!stopped) attached?.deliver({ type: "providers", providers: registry.info() });
   });
   const supervisor = new ProcessSupervisor();
-  const host = new SessionHost(registry, emit, { log });
+  const host = new SessionHost(registry, emit, { log, home: opts.home });
   const terminals = new TerminalHost({ supervisor, emit, stream });
   // Chromium launches lazily on the first `browser.*` command (§12.2).
   const browserManager = opts.browser ?? new BrowserManager({ stream, log });
