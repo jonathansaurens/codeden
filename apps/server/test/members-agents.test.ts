@@ -127,6 +127,35 @@ describe("connected agents (§C.1, §C.3)", () => {
     );
   });
 
+  it("derives a session's purpose and work key from the agent's own words", async () => {
+    const e = await startMembersEnv();
+    env = e;
+    seedProjects(e.server, ["p1"]);
+    const bot = await e.agent({ name: "Release bot", role: "operator" });
+    const start = async (text: string) => {
+      const res = await e.remote("/api/sessions", {
+        ...jsonInit("POST", { projectId: "p1", input: { text } }),
+        as: bot.as,
+      });
+      return { status: res.status, body: (await res.json()) as { sessionId?: string } };
+    };
+    const first = await start("Fix the login redirect");
+    const second = await start("Update the release notes");
+    // Two different requests are two pieces of work, not a duplicate of the first.
+    expect([first.status, second.status]).toEqual([200, 200]);
+    const purposeOf = async (id: string | undefined) => {
+      const res = await e.local(`/api/sessions/${id}`);
+      return ((await res.json()) as { session: { purpose: string; workKey: string } }).session;
+    };
+    expect(await purposeOf(first.body.sessionId)).toMatchObject({
+      purpose: "Fix the login redirect",
+      workKey: "request:fix-the-login-redirect",
+    });
+    expect((await purposeOf(second.body.sessionId)).workKey).toBe(
+      "request:update-the-release-notes",
+    );
+  });
+
   it("never gives an agent a terminal, even as an Operator", async () => {
     env = await startMembersEnv();
     seedProjects(env.server, ["p1"]);

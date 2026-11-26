@@ -219,6 +219,9 @@ export class SessionService {
   }
 
   async start(req: StartSessionRequest): Promise<StartSessionResponse> {
+    // Purpose and work key come from the text as written: a connected agent's message gets an
+    // introduction line below, which would give every session it starts the same key.
+    const ownInput = req.input;
     // The opening message is the user's when a person (or connected agent) started it (§B.4).
     if (req.input) {
       req = {
@@ -236,7 +239,7 @@ export class SessionService {
     }
     // Refused before the conflict check: a worktree that can't be made is never queued either.
     const workspace = startWorkspace(req.workspace, project);
-    const purpose = derivePurpose(req.purpose, req.input?.text);
+    const purpose = derivePurpose(req.purpose, ownInput?.text);
     const workKey = deriveWorkKey({
       workKey: req.workKey,
       issueNumber: req.issue?.number,
@@ -258,8 +261,9 @@ export class SessionService {
           if (target.projectId !== req.projectId) {
             throw badRequest("Can only join a session in the same project", "join_mismatch");
           }
-          if (req.input) {
-            await this.send(target.id, { input: req.input, whenBusy: "queue" }, req.startedBy.kind);
+          // `send` introduces a connected agent's message itself.
+          if (ownInput) {
+            await this.send(target.id, { input: ownInput, whenBusy: "queue" }, req.startedBy.kind);
           }
           return { status: "joined", sessionId: target.id };
         }
