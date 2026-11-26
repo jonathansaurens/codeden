@@ -172,7 +172,8 @@ They use the provider sign-ins of the device they run on. The orchestrator works
 (`~/.codeden-runner/repos/<project>`), read-only and fetched before each turn. Changing the
 setting moves the conversation once no turn is running: it is archived, and your next message
 starts a fresh one on the new device, with queued messages, notes and wake-ups carried over.
-If the device can't take a turn (offline, its provider not signed in), that turn runs on the
+If the device can't take a turn (offline, its provider not signed in, or starting the conversation
+there failed), that turn runs on the
 server in a fresh conversation and the chat says why ("vps-1 is offline; this turn runs on the
 server…"); it moves back on a later turn once the device can take it ("Back on vps-1."). If the
 server can't run it either, your message waits and the chat says so. The session header shows

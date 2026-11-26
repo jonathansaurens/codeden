@@ -110,14 +110,17 @@ export class SessionLauncher {
   /**
    * Start a new session in the background: failures mark it failed (see `start`). A start the
    * runner didn't answer is recorded as such (`unanswered-start.ts`): the session may still open.
+   * Returns the failure, if the start failed.
    */
-  async launch(sessionId: string, opts: LaunchOptions): Promise<void> {
+  async launch(sessionId: string, opts: LaunchOptions): Promise<{ error: unknown } | undefined> {
     try {
       await this.start(sessionId, opts);
+      return undefined;
     } catch (error) {
       const code = unansweredCode(error);
       if (code) setUnanswered(this.deps.repo, sessionId, { code, at: new Date().toISOString() });
       this.fail(sessionId, "start", error);
+      return { error };
     }
   }
 

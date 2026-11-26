@@ -134,6 +134,7 @@ export class SessionService {
   private inputDecorator: InputDecorator | undefined;
   /** Told about each message that steered a running turn (who a role's turn acts for, §D.2). */
   private steerObserver: ((session: Session, input: UserInput) => void) | undefined;
+  private startFailureObserver: ((session: Session, error: unknown) => void) | undefined;
   private checkRuns: CheckRuns | undefined;
   private readonly holds: OutboxHolds;
   /**
@@ -162,6 +163,11 @@ export class SessionService {
   /** Follow the messages that steer running turns (`input.from` says who sent each). */
   setSteerObserver(fn: (session: Session, input: UserInput) => void): void {
     this.steerObserver = fn;
+  }
+
+  /** Follow sessions whose background start failed (the session is marked failed already). */
+  setStartFailureObserver(fn: (session: Session, error: unknown) => void): void {
+    this.startFailureObserver = fn;
   }
 
   /** The checks loop (§9 Project checks): Stop and new messages end a check run. */
@@ -882,6 +888,10 @@ export class SessionService {
     const prepared = input ? this.forRunner(session, input) : undefined;
     const promise = this.deps.launcher
       .launch(id, { input: prepared, workspace, ...(fork ? { fork } : {}) })
+      .then((failed) => {
+        const after = failed && this.deps.repo.find(id)?.session;
+        if (failed && after) this.startFailureObserver?.(after, failed.error);
+      })
       .finally(() => this.launching.delete(id));
     this.launching.set(id, promise);
   }

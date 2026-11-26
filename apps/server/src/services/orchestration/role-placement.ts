@@ -105,7 +105,23 @@ export class RoleWaits {
  * turn, and which device a role session runs on. Never chooses a machine by itself.
  */
 export class RolePlacement {
+  /**
+   * Roles whose session couldn't be started on their machine (§D.4), by role: the role's next
+   * session starts on the server instead, once, and the machine is tried again after that.
+   */
+  private readonly startFailures = new Map<string, { machineId: string; reason: string }>();
+
   constructor(private readonly deps: RolePlacementDeps) {}
+
+  /** The role's session failed to start on `machineId`: its next one runs on the server. */
+  startFailed(role: Role, of: string | null, machineId: string, reason: string): void {
+    this.startFailures.set(`${role}:${of}`, { machineId, reason });
+  }
+
+  /** A session of the role started: a start failure it stood in for is behind it. */
+  started(role: Role, of: string | null): void {
+    this.startFailures.delete(`${role}:${of}`);
+  }
 
   /** The role's setting: `server` or a machine id. `of` is the PM's project or a person key. */
   setting(role: Role, of: string | null): RoleRunsOn {
@@ -136,6 +152,10 @@ export class RolePlacement {
   async target(role: Role, of: string | null): Promise<RoleTarget> {
     const want = this.setting(role, of);
     if (want === ROLE_ON_SERVER) return { kind: "server" };
+    const failed = this.startFailures.get(`${role}:${of}`);
+    if (failed?.machineId === want && this.deps.runner.isConnected()) {
+      return { kind: "server", fallback: failed };
+    }
     const why = await this.machineProblem(role, of, want);
     if (typeof why !== "string") return why;
     if (this.deps.runner.isConnected()) {

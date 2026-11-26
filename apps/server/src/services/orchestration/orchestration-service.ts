@@ -252,6 +252,10 @@ export class OrchestrationService {
         throw error;
       }
     });
+    // A role that couldn't start on its machine falls back to the server (§D.4).
+    this.deps.sessions.setStartFailureObserver((session, error) => {
+      void this.roles.startFailed(session, error);
+    });
     this.deps.sessions.setSteerObserver((session, input) =>
       this.authority.steered(session, input, input.from ?? "user"),
     );

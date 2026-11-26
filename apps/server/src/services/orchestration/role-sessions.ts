@@ -9,12 +9,14 @@ import {
 } from "@codeden/contracts";
 import type { Db } from "../../db/client";
 import type { SettingsStore } from "../../settings-store";
-import { conflict, ServiceError } from "../errors";
+import { conflict, errorMessage, ServiceError } from "../errors";
 import type { InboxService } from "../inbox-service";
 import { projectDefaultProvider } from "../projects/project-config";
 import type { ProjectService } from "../projects/project-service";
 import type { RunnerPort } from "../runner-port";
+import { runnerErrorCode } from "../runner-port";
 import { assertProjectActive } from "../sessions/archived-project";
+import { isTransientRunnerError } from "../sessions/outbox-holds";
 import type { SessionRepo, StoredStartMeta } from "../sessions/repo";
 import type { SessionService } from "../sessions/session-service";
 import { limitReset, type RoleFallback } from "./role-fallback";
@@ -468,6 +470,31 @@ export class RoleSessions {
   }
 
   /**
+   * A role session failed to start on the machine its "Runs on" names (§D.4): the role falls
+   * back to the server at once, in a fresh conversation that takes over its queue, with the
+   * chat saying why, and goes back to the machine with its next message or wake. Not for a
+   * start that may still open (it went unanswered), a refusal by policy, or a usage limit,
+   * which are handled where they belong.
+   */
+  async startFailed(session: Session, error: unknown): Promise<void> {
+    const placement = this.deps.placement;
+    if (!placement || (session.role !== "orchestrator" && session.role !== "pm")) return;
+    const role: OrchestrationRole = session.role;
+    const of = roleScopeOf(session);
+    const key = keyOf(role, of);
+    const device = placement.deviceOf(session);
+    if (device === ROLE_ON_SERVER || !fallsBack(error)) return;
+    if (this.changing.has(key) || this.find(role, of)?.id !== session.id) return;
+    const name = placement.label(device);
+    placement.startFailed(role, of, device, `${name} couldn't start it (${errorMessage(error)})`);
+    try {
+      await this.exclusive(key, () => this.replace(session, role, of, true, PLACED));
+    } catch (failure) {
+      this.deps.log?.(`role sessions: no fallback for the ${role}: ${String(failure)}`);
+    }
+  }
+
+  /**
    * The role's provider hit its usage limit (§8.1): replace `session`, the role's current one,
    * with a new one on `plan.provider`, as one step with a provider move, and send the failed
    * turn's message again there, ahead of what waited in the queue. Undefined (nothing changed)
@@ -587,6 +614,7 @@ export class RoleSessions {
     if (fallback && session.provider === plan.provider && session.provider !== fallback.home) {
       this.deps.repo.setStartMeta(session.id, (meta) => ({ ...(meta ?? EMPTY_META), fallback }));
     }
+    if (target.kind === "server") this.deps.placement?.started(role, of);
     if (target.kind === "server" && target.fallback) {
       const placementFallback = { machineId: target.fallback.machineId };
       this.deps.repo.setStartMeta(session.id, (meta) => ({
@@ -596,4 +624,25 @@ export class RoleSessions {
     }
     return { session, target };
   }
+}
+
+/** Start failures that aren't the device's to blame: refused by policy, or a usage limit. */
+const NO_FALLBACK = new Set([
+  "forbidden",
+  "machine_not_yours",
+  "approvals_not_allowed",
+  "usage_limit",
+]);
+
+/**
+ * Whether a failed start on a machine falls back to the server: not a start that may still open
+ * (the runner didn't answer), a refusal by policy or a usage limit.
+ */
+function fallsBack(error: unknown): boolean {
+  if (isTransientRunnerError(error)) return false;
+  if (error instanceof ServiceError && (error.status === 403 || NO_FALLBACK.has(error.code))) {
+    return false;
+  }
+  const code = runnerErrorCode(error);
+  return !(code && NO_FALLBACK.has(code)) && !/usage limit/i.test(errorMessage(error));
 }

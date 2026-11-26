@@ -44,10 +44,12 @@ let server: RunningServer;
 let projectId: string;
 let localProjectId: string;
 let machineId: string;
+/** Clones from the origin fail while set: a start on the machine fails. */
+let cloneFails = false;
 
 function serverOptions(): StartServerOptions {
   const gitBroker: GitBroker = {
-    cloneUrl: async () => bare,
+    cloneUrl: async () => (cloneFails ? join(base, "no-such-origin") : bare),
     credentialFor: async () => undefined,
     credentialForProject: async () => undefined,
   };
@@ -108,6 +110,7 @@ const machineRunnerId = () => server.runners.list().find((r) => r.id === machine
 const machineClient = () => server.runners.client(machineId);
 
 beforeEach(async () => {
+  cloneFails = false;
   base = mkdtempSync(join(tmpdir(), "codeden-role-placement-"));
   serverHome = mkdtempSync(join(base, "server-"));
   bare = mkdtempSync(join(base, "origin-"));
@@ -270,6 +273,40 @@ describe("Runs on (§D.4)", () => {
     machine.setReachable(true);
     await waitUntil(() => machineClient()?.status.state === "connected");
     const back = await askPm("it is back");
+    expect(back.id).not.toBe(fallback.id);
+    expect(back.runnerId).toBe(machineRunnerId());
+    expect(placementNotes(back.id)).toEqual(["Back on vps-1."]);
+  });
+
+  it("falls back to the server when the PM can't be started on its machine", async () => {
+    await api("PATCH", `/projects/${projectId}`, { pmRunsOn: machineId });
+    cloneFails = true;
+    const sent = await api(
+      "POST",
+      `/orchestration/projects/${projectId}/pm/messages`,
+      say("hello"),
+    );
+    expect(sent.status).toBe(200);
+    const failed = sent.body.sessionId as string;
+    const current = () => server.services.orchestration.roles.find("pm", projectId);
+    await waitUntil(() => {
+      const pm = current();
+      return (
+        pm !== undefined && pm.id !== failed && replies(pm.id).some((r) => r.includes("hello"))
+      );
+    });
+    const fallback = current() as Session;
+    await waitUntil(() => server.services.sessionRepo.get(fallback.id).status === "idle");
+    expect(server.services.sessionRepo.get(failed).archivedAt).not.toBeNull();
+    expect(fallback.runnerId).not.toBe(machineRunnerId());
+    const [note] = placementNotes(fallback.id);
+    expect(note).toMatch(
+      /^vps-1 couldn't start it \(.+\); this turn runs on the server, until vps-1 can take it again\.$/,
+    );
+
+    // The machine is tried again on the next turn.
+    cloneFails = false;
+    const back = await askPm("try the machine again");
     expect(back.id).not.toBe(fallback.id);
     expect(back.runnerId).toBe(machineRunnerId());
     expect(placementNotes(back.id)).toEqual(["Back on vps-1."]);
