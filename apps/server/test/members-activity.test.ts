@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { type ActivityRow, activityOf } from "../src/members/activity";
 
-const olga = { memberId: "m-olga", kind: "person" as const };
-const bot = { memberId: "m-bot", kind: "agent" as const };
+type Actor = { memberId: string; kind: "person" | "agent" };
+const olga: Actor = { memberId: "m-olga", kind: "person" };
+const bot: Actor = { memberId: "m-bot", kind: "agent" };
 let seq = 100;
 const row = (type: string, actor = olga, sessionId: string | null = "s1", payload: unknown = {}) =>
   ({ seq: seq--, type, actor, sessionId, ts: "2026-11-26T08:00:00.000Z", payload }) as ActivityRow;
-const session = (status: string, stoppedBy: typeof olga | null = null) => ({
+const session = (status: string, stoppedBy: Actor | null = null) => ({
   session: { status, stoppedBy },
 });
 
