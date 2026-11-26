@@ -14,9 +14,10 @@ import { type Context, Hono } from "hono";
 import { asPersonStart, clientInput } from "../members/attribution";
 import { canSee } from "../members/authorize";
 import { principalOf } from "../members/principal";
+import { isPrivateSession } from "../members/privacy";
 import { authorizeContext } from "../members/sockets";
 import type { AppServices } from "../services/container";
-import { forbidden } from "../services/errors";
+import { forbidden, notFound } from "../services/errors";
 import { memberOfKey, personKey } from "../services/orchestration/role-keys";
 import { jsonBody, queryOf } from "./validate";
 
@@ -80,9 +81,16 @@ export function orchestrationRoutes(s: AppServices) {
         );
         return c.json(body);
       })
-      .post("/orchestrator/start-fresh", jsonBody(StartFreshRoleRequest), async (c) =>
-        c.json(await startFresh("orchestrator", personOf(c), c.req.valid("json").sessionId)),
-      )
+      .post("/orchestrator/start-fresh", jsonBody(StartFreshRoleRequest), async (c) => {
+        const person = personOf(c);
+        const { sessionId } = c.req.valid("json");
+        // Someone else's orchestrator answers as if it didn't exist (§D.1).
+        const member = principalOf(c)?.member;
+        if (member && isPrivateSession(s.db, member, sessionId)) {
+          throw notFound("Not found", "not_found");
+        }
+        return c.json(await startFresh("orchestrator", person, sessionId));
+      })
       // Where the caller's orchestrator runs (§D.4): the server or a machine they may use.
       .get("/orchestrator/runs-on", async (c) => {
         const person = personOf(c);
