@@ -81,10 +81,13 @@ export class MemberAuth {
       .devices.filter((d) => d.memberId === memberId);
   }
 
-  /** Sign out a member's devices and close remote connections (it was disabled or deleted). */
-  cutOff(memberId: string): void {
+  /**
+   * Sign out a member's devices and close its connections, on any address (it is being deleted).
+   * Other members' connections stay open, and so does `except`: the request asking for it.
+   */
+  cutOff(memberId: string, except?: object): void {
     this.network.store.revokeMember(memberId);
-    this.network.dropRemote();
+    this.network.dropConnections({ memberId }, except);
   }
 
   private checkBearer(token: string, c: Context): BearerCheck {

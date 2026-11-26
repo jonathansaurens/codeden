@@ -1,7 +1,7 @@
 import { appendFileSync } from "node:fs";
-import type { NetworkAddress, NetworkStatus } from "@codeden/contracts";
+import { type NetworkAddress, type NetworkStatus, OWNER_MEMBER_ID } from "@codeden/contracts";
 import { type InterfaceMap, listAddresses } from "./addresses";
-import type { BindHost, HttpListener } from "./listener";
+import type { BindHost, ConnectionMatch, HttpListener } from "./listener";
 import { generatePassphrase } from "./password";
 import { type SignInGate, SignInLimiter } from "./rate-limit";
 import type { RemoteAccessStore } from "./store";
@@ -223,11 +223,17 @@ export class NetworkAccess {
     );
   }
 
-  /** Set (or generate) the password; signs out every remote device. Returns a generated one. */
-  async setPassword(input: { password: string } | { generate: true }): Promise<string | null> {
+  /**
+   * Set (or generate) the password; signs out the first owner's devices and closes their
+   * connections (except `except`, the request that asked). Returns a generated one.
+   */
+  async setPassword(
+    input: { password: string } | { generate: true },
+    except?: object,
+  ): Promise<string | null> {
     const generated = "generate" in input ? generatePassphrase() : null;
     await this.store.setPassword(generated ?? (input as { password: string }).password);
-    this.listener.dropRemote();
+    this.listener.dropMatching({ memberId: OWNER_MEMBER_ID, via: "session" }, except);
     this.log("network access password changed: the first owner's devices were signed out");
     return generated;
   }
@@ -237,15 +243,19 @@ export class NetworkAccess {
     this.listener.dropRemote();
   }
 
-  /** Close remote connections, so a device whose member lost access notices at once. */
-  dropRemote(): void {
-    this.listener.dropRemote();
+  /**
+   * Close one member's, device's or agent token's connections (its WebSockets too), so it
+   * notices a change of access at once. Everyone else's stay open, and so does `except`: the
+   * request asking for it.
+   */
+  dropConnections(match: ConnectionMatch, except?: object): void {
+    this.listener.dropMatching(match, except);
   }
 
-  /** Sign out one device (and close remote connections so it notices). */
-  revoke(id: string): boolean {
+  /** Sign out one device and close its connections (except `except`) so it notices. */
+  revoke(id: string, except?: object): boolean {
     const revoked = this.store.revoke(id);
-    if (revoked) this.listener.dropRemote();
+    if (revoked) this.listener.dropMatching({ sessionId: id }, except);
     return revoked;
   }
 

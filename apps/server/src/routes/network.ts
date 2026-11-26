@@ -10,7 +10,7 @@ import type { MemberAuth } from "../members/auth";
 import type { InviteService } from "../members/invites";
 import type { NetworkAccess } from "../network/access";
 import { PasswordRuleError, TrustedOriginError } from "../network/store";
-import { isRemoteRequest } from "../security";
+import { isRemoteRequest, requestSocket } from "../security";
 import { badRequest, forbidden, notFound } from "../services/errors";
 import { jsonBody } from "./validate";
 
@@ -88,7 +88,7 @@ export function networkRoutes(ctx: NetworkRouteContext) {
       return c.json(body);
     })
     .delete("/devices/:id", (c) => {
-      if (!network.revoke(c.req.param("id"))) throw notFound("No such device");
+      if (!network.revoke(c.req.param("id"), requestSocket(c))) throw notFound("No such device");
       return c.json(statusFor(c));
     })
     .delete("/devices", (c) => {
