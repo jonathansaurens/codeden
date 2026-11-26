@@ -10,11 +10,16 @@ import { callerOf } from "./members";
 const INSTRUCTIONS =
   "CodeDen member tools: see projects, sessions, diffs and the inbox; message the orchestrator, PMs and sessions; start and stop sessions; answer questions and approvals; run automations; wait for a session. What you may do follows your member role per project.";
 
-function jsonRpcError(status: number, message: string, headers: Record<string, string> = {}) {
-  return new Response(
-    JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32000, message } }),
-    { status, headers: { "content-type": "application/json", ...headers } },
-  );
+function jsonRpcError(
+  status: number,
+  message: string,
+  headers: Record<string, string> = {},
+  code = -32000,
+) {
+  return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code, message } }), {
+    status,
+    headers: { "content-type": "application/json", ...headers },
+  });
 }
 
 /** One MCP request for a member: stateless Streamable HTTP, like the internal `/mcp`. */
@@ -45,11 +50,26 @@ async function memberMcp(
       : result.message;
     return { content: [{ type: "text", text }], isError: !result.ok };
   });
+  // An empty batch is an Invalid Request (JSON-RPC 2.0 §6), not a batch of notifications.
+  let parsedBody: unknown;
+  if (request.headers.get("content-type")?.includes("application/json")) {
+    try {
+      parsedBody = await request.json();
+    } catch {
+      return jsonRpcError(400, "Parse error", {}, -32700);
+    }
+    if (Array.isArray(parsedBody) && parsedBody.length === 0) {
+      return jsonRpcError(400, "Invalid Request: empty batch", {}, -32600);
+    }
+  }
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);
   request.signal.addEventListener("abort", () => void server.close(), { once: true });
   try {
-    return await transport.handleRequest(request);
+    return await transport.handleRequest(
+      request,
+      parsedBody === undefined ? undefined : { parsedBody },
+    );
   } catch (error) {
     log?.(`member-mcp: ${error instanceof Error ? error.message : String(error)}`);
     return jsonRpcError(500, "Internal error");

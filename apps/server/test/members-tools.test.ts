@@ -83,6 +83,23 @@ describe("member tools (§C.2)", () => {
     }
   });
 
+  it("answers an empty JSON-RPC batch with Invalid Request", async () => {
+    const e = await startMembersEnv();
+    env = e;
+    const bot = await e.agent({ name: "bot", role: "viewer" });
+    const res = await e.remote("/api/member-mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: "[]",
+      as: bot.as,
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ jsonrpc: "2.0", id: null, error: { code: -32600 } });
+  });
+
   it("lists no tool the agent can't use anywhere", async () => {
     const e = await startMembersEnv();
     env = e;
