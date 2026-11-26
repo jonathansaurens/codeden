@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ingestRunnerEvent } from "../src/events/ingest";
 import type { RunnerPort } from "../src/services/runner-port";
 import type { SessionLauncher } from "../src/services/sessions/launcher";
-import { SessionRecovery } from "../src/services/sessions/recovery";
+import { RESTART_CONTINUE_MESSAGE, SessionRecovery } from "../src/services/sessions/recovery";
 import type { SessionService } from "../src/services/sessions/session-service";
 import { createGithubEnv, type GithubEnv } from "./support/github-env";
 
@@ -192,8 +192,6 @@ describe("a compaction cut off by a runner restart", () => {
 
     await t.recovery.onRunnerReady();
 
-    expect(t.continued).toEqual([
-      [s.id, "You were interrupted by a CodeDen restart; continue where you left off."],
-    ]);
+    expect(t.continued).toEqual([[s.id, RESTART_CONTINUE_MESSAGE]]);
   });
 });

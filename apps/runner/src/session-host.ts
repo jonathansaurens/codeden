@@ -369,8 +369,9 @@ export class SessionHost {
   }
 
   /**
-   * A drain-interrupted root turn is reported as cut off by a runner restart, and the root turn
-   * a compaction starts is marked as one.
+   * A root turn interrupted by a drain, or cut off because the runner is exiting, is reported as
+   * cut off by a runner restart (not as the user's Stop), and the root turn a compaction starts
+   * is marked as one.
    */
   private rewrite(hosted: Hosted, event: AgentEvent): AgentEvent {
     if (
@@ -383,7 +384,7 @@ export class SessionHost {
       return { ...event, kind: "compact" };
     }
     if (
-      hosted.drainInterrupted &&
+      (hosted.drainInterrupted || hosted.turnCutOff) &&
       event.type === "turn.interrupted" &&
       event.threadId === hosted.rootThreadId
     ) {
