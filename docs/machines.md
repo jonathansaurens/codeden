@@ -156,7 +156,27 @@ A session on a machine shows the machine's name in its header, with its state. I
 can't be reached when a session starts there, the session fails with an inbox item saying which
 machine and why; CodeDen keeps reconnecting, and the next message tries again.
 
-The orchestrator and PMs always stay on Home. A fork stays on its source session's machine.
+A fork stays on its source session's machine. The orchestrator and the PMs are never placed
+automatically; each runs where its owner chooses (see below).
+
+### Where the orchestrator and PMs run
+
+- **Your orchestrator:** its chat's ⋯ menu › **Runs on…**: the server (the default), a machine,
+  or your own computer. Only machines you may use are listed, each with whether it can take a
+  turn now.
+- **A project's PM:** Project page › Settings › **PM runs on** (Owners): the server, a machine,
+  or your own computer. A project that isn't on GitHub keeps its PM on the server.
+
+They use the provider sign-ins of the device they run on. The orchestrator works in
+`~/.codeden-runner/orchestrator/<member id>` there, the PM in the project's clone
+(`~/.codeden-runner/repos/<project>`), read-only and fetched before each turn. Changing the
+setting moves the conversation once no turn is running: it is archived, and your next message
+starts a fresh one on the new device, with queued messages, notes and wake-ups carried over.
+If the device can't take a turn (offline, its provider not signed in), that turn runs on the
+server in a fresh conversation and the chat says why ("vps-1 is offline; this turn runs on the
+server…"); it moves back on a later turn once the device can take it ("Back on vps-1."). If the
+server can't run it either, your message waits and the chat says so. The session header shows
+the machine they run on.
 
 Each machine keeps one clone of each project (`~/.codeden-runner/repos/<project>`), fetched
 from GitHub before every new session, and gives each session a worktree of it

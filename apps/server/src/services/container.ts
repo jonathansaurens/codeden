@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DEFAULT_MACHINE_WEIGHT, messageFrom, type Session } from "@codeden/contracts";
 import { createImageEngineRegistry, type ImageEngineRegistry } from "@codeden/providers";
 import type { Db } from "../db/client";
+import { findRunnerByRunnerId } from "../events/runner-projection";
 import type { EventStore } from "../events/store";
 import type { ComputerService } from "../execution/connected/computers";
 import { AutoPlacement } from "../execution/placement/auto";
@@ -12,6 +13,7 @@ import { ToolRegistry } from "../mcp/registry";
 import { McpTokenStore } from "../mcp/tokens";
 import { allTools } from "../mcp/tools";
 import { InviteService } from "../members/invites";
+import { MemberPreferences } from "../members/preferences";
 import { MemberService } from "../members/service";
 import type { HomePaths } from "../paths";
 import type { SettingsStore } from "../settings-store";
@@ -37,6 +39,7 @@ import {
   OrchestrationService,
 } from "./orchestration/orchestration-service";
 import type { AutomationPort, GithubPort } from "./orchestration/ports";
+import { RolePlacement } from "./orchestration/role-placement";
 import { ProjectService } from "./projects/project-service";
 import { ProjectRedetector } from "./projects/redetector";
 import { ProviderHistoryService } from "./providers/history";
@@ -196,6 +199,14 @@ export interface AppServices {
   agentConfig: AgentConfigService;
   /** Orchestrator and PM sessions, digests, notices, conflicts (§8). */
   orchestration: OrchestrationService;
+  /** Where the orchestrators and PMs run (§D.4). */
+  rolePlacement: RolePlacement;
+  /** Messages waiting for their session's next turn. */
+  outbox: Outbox;
+  /** Starts sessions on their runner (and the options they open with). */
+  launcher: SessionLauncher;
+  /** Each person's own preferences (their orchestrator's "Runs on"). */
+  preferences: MemberPreferences;
   /** GitHub connection, issue/PR sync, PRs and evidence (§9). */
   github: GithubService;
   /** Usage and cost reports, budgets and rate limits (§12.6). */
@@ -413,7 +424,19 @@ export function createServices(opts: ServicesOptions): AppServices {
     billing: async () => (setup.lastStatus ? billingFromSetup(setup.lastStatus) : {}),
     log: opts.log,
   });
+  const preferences = new MemberPreferences(opts.db);
+  const rolePlacement = new RolePlacement({
+    machines: opts.machines,
+    projects,
+    preferences,
+    sessions,
+    runner: opts.runner,
+    recordOfRunner: (runnerId) => findRunnerByRunnerId(opts.db, runnerId),
+    log: opts.log,
+  });
   const orchestration = new OrchestrationService({
+    placement: rolePlacement,
+    preferences,
     db: opts.db,
     store: opts.store,
     members,
@@ -593,6 +616,10 @@ export function createServices(opts: ServicesOptions): AppServices {
     }),
     github,
     orchestration,
+    rolePlacement,
+    preferences,
+    outbox,
+    launcher,
     automations,
     userHome,
     questions,

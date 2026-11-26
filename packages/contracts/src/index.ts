@@ -53,6 +53,7 @@ export * from "./projects-api";
 export * from "./provider";
 export * from "./provider-history";
 export * from "./redact";
+export * from "./role-placement";
 export * from "./runner/browser";
 export * from "./runner/browser-forms";
 export * from "./runner/commands";

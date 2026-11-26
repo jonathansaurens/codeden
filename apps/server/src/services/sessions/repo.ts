@@ -88,6 +88,12 @@ export type StoredStartMeta = SessionStartMeta & {
    */
   fallback?: RoleFallback | null;
   /**
+   * On an orchestrator or PM session that runs on the server because the machine its "Runs on"
+   * names couldn't take it (`docs/machines-teams-and-agents.md` §D.4): that machine's id, where
+   * the role goes back to once it can.
+   */
+  placementFallback?: { machineId: string } | null;
+  /**
    * On a machine (`docs/machines-teams-and-agents.md` §A.4): the project's clone there that the
    * session's worktree belongs to, for removing and recreating the worktree.
    */

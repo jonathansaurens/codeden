@@ -83,7 +83,6 @@ describe("withLiveState", () => {
     resources: null,
     reinstalled: false,
     providers: [],
-    reinstalled: false,
   };
   const runner = (over: Partial<RunnerRecord>): RunnerRecord => ({
     id: "m1",

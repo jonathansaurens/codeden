@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AutonomyLevel, Id, ProviderId, ReasoningEffort, Timestamp } from "../common";
 import { ProjectExecution } from "../execution";
 import { AutonomyMode, DEFAULT_VISION_PATH, FactoryLimits } from "../factory";
+import { ROLE_ON_SERVER, RoleRunsOn } from "../role-placement";
 
 /**
  * Something re-detecting a project's folder found that CodeDen does not apply on its own (§9).
@@ -71,6 +72,12 @@ const projectBase = {
    * use `docker`. Defaults to `local` so events written before the setting existed still parse.
    */
   execution: ProjectExecution.prefault({}),
+  /**
+   * Where the project's PM runs (`docs/machines-teams-and-agents.md` §D.4): `server` (the
+   * default) or a machine's id, set by an Owner. Only a GitHub project's PM can leave the server
+   * (the machine clones it). Defaults to `server` so events written before it existed still parse.
+   */
+  pmRunsOn: RoleRunsOn.default(ROLE_ON_SERVER),
   /**
    * Pinned projects are listed above the rest (§13). Defaults to false so events written
    * before pinning existed still parse.

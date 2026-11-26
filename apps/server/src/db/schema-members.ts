@@ -69,3 +69,14 @@ export const memberInvites = sqliteTable(
   },
   (t) => [uniqueIndex("member_invites_secret").on(t.secretHash)],
 );
+
+/**
+ * A member's own preferences, written directly (a person's choice for their own work, never
+ * shared): where their orchestrator runs (`RoleRunsOn`, `docs/machines-teams-and-agents.md`
+ * §D.4). No row: the defaults. The first owner's row is keyed by `OWNER_MEMBER_ID`.
+ */
+export const memberPreferences = sqliteTable("member_preferences", {
+  memberId: text("member_id").primaryKey(),
+  orchestratorRunsOn: text("orchestrator_runs_on").notNull().default("server"),
+  updatedAt: text("updated_at").notNull(),
+});

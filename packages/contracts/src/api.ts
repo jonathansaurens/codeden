@@ -19,6 +19,7 @@ import { UserInput } from "./input";
 import { FollowupsItem } from "./items";
 import { SessionPlacement } from "./machines";
 import { BrokenExecutable, ProjectModels, ProviderInfo, RuntimeResponse } from "./provider";
+import { RoleRunsOn } from "./role-placement";
 import { ConflictDecision, StartedBy, StartWorkResult, WorkKey } from "./work";
 import { SetupStep } from "./workbench";
 import { ClientSubscribe, ClientToServerMessage, ServerToClientMessage } from "./ws";
@@ -113,6 +114,12 @@ export const UpdateProjectRequest = z.object({
   execution: z
     .object({ backend: ProjectExecutionBackend, machine: MachineTarget.nullable().optional() })
     .optional(),
+  /**
+   * Where the project's PM runs (`Project.pmRunsOn`, §D.4): `server` or a machine's id. Refused
+   * for a project that isn't on GitHub, a machine that doesn't exist, and someone else's own
+   * computer.
+   */
+  pmRunsOn: RoleRunsOn.optional(),
 });
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequest>;
 

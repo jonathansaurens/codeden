@@ -94,3 +94,52 @@ export async function prepareCloneWorkspace(
     setupNote: await settleSetup(opts.gate, session, project, result),
   };
 }
+
+/**
+ * A PM's workspace on a machine (`docs/machines-teams-and-agents.md` §D.4): the project's clone
+ * there itself (`<runner home>/repos/<project>`), fetched and fast-forwarded, read-only, with no
+ * worktree of its own and no setup. The same command brings it up to date before each turn.
+ */
+export async function prepareRoleClone(
+  git: GitBroker | undefined,
+  runner: RunnerPort,
+  session: Session,
+  project: Project,
+  timeoutMs: number,
+): Promise<PreparedWorkspace> {
+  const remoteUrl = git ? await git.cloneUrl(project) : null;
+  if (!git || !remoteUrl) {
+    throw new ServiceError(
+      400,
+      "clone_unavailable",
+      "This project has no origin remote, so a machine can't clone it for its PM",
+    );
+  }
+  const credential = await git.credentialFor(runner, remoteUrl);
+  const result = await runner.request(
+    {
+      name: "workspace.prepare",
+      sessionId: session.id,
+      strategy: "clone",
+      remoteUrl,
+      fetch: true,
+      setupCommands: [],
+      runProjectSetup: false,
+      perProject: true,
+      projectRoot: true,
+      projectSlug: project.slug,
+      ...(credential ? { credential } : {}),
+    },
+    timeoutMs,
+  );
+  return {
+    cwd: result.cwd,
+    // The clone is shared with the project's sessions there: never removed with the PM.
+    worktreePath: null,
+    repoPath: null,
+    branch: result.branch,
+    baseBranch: null,
+    fallback: null,
+    setupNote: null,
+  };
+}

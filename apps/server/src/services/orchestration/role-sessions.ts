@@ -1,6 +1,7 @@
 import {
   isActiveSession,
   type QueuedMessage,
+  ROLE_ON_SERVER,
   type RoleSessionsRef,
   type Session,
   type Settings,
@@ -20,6 +21,17 @@ import { limitReset, type RoleFallback } from "./role-fallback";
 import { freshRefusal, isOpenRequest } from "./role-fresh";
 import { personKey, roleScopeOf } from "./role-keys";
 import {
+  type PlacementMove,
+  type PlacementWait,
+  type RolePlacement,
+  type RoleTarget,
+  RoleWaits,
+  targetDevice,
+} from "./role-placement";
+
+export type { PlacementMove, PlacementWait } from "./role-placement";
+
+import {
   allRoleSessionIds,
   findRoleSession,
   orchestratorRefs,
@@ -30,9 +42,11 @@ export type OrchestrationRole = "orchestrator" | "pm";
 
 /**
  * Why a role's session is replaced: its provider setting moved, a person started fresh, its
- * provider hit its usage limit (`limit`), or that limit has reset and the role goes back.
+ * provider hit its usage limit (`limit`), that limit has reset and the role goes back, or it
+ * runs on another device (`placed`, §D.4: its "Runs on" changed, its machine can't take the
+ * turn, or can again).
  */
-export type ReplaceReason = "moved" | "fresh" | "limit" | "reset";
+export type ReplaceReason = "moved" | "fresh" | "limit" | "reset" | "placed";
 
 /** A fallback after a usage limit: the provider that takes over, and the message to send again. */
 export interface FallbackPlan {
@@ -46,6 +60,7 @@ export interface FallbackPlan {
 type Replacement = { why: ReplaceReason } & Partial<FallbackPlan>;
 
 const MOVED: Replacement = { why: "moved" };
+const PLACED: Replacement = { why: "placed" };
 
 const EMPTY_META: StoredStartMeta = {
   workspaceMode: "repo_root",
@@ -93,6 +108,8 @@ export class RoleSessions {
   private readonly retired = new Map<string, { session: Session; plan: Replacement }>();
   /** The last `applyProviderSettings` run: they follow each other. */
   private applying: Promise<void> = Promise.resolve();
+  /** Roles whose machine and the server both can't take a turn now (§D.4). */
+  private readonly waits: RoleWaits;
 
   constructor(
     private readonly deps: {
@@ -104,12 +121,21 @@ export class RoleSessions {
       settings: Pick<SettingsStore, "get">;
       /** The home runner: its providers are the ones a role can move to. */
       runner: Pick<RunnerPort, "isConnected" | "providers">;
-      /** A role's retired session was replaced by a new one (which took over its queue). */
-      onMoved?: (from: Session, to: Session, why: ReplaceReason) => void;
+      /** Where each role runs (§D.4); without it, always on the server. */
+      placement?: RolePlacement;
+      /** How long a role waits before trying its devices again when none can take it (30 s). */
+      waitRetryMs?: number;
+      /**
+       * A role's retired session was replaced by a new one (which took over its queue); `move`
+       * when the new one runs on another device.
+       */
+      onMoved?: (from: Session, to: Session, why: ReplaceReason, move?: PlacementMove) => void;
       now?: () => number;
       log?: (message: string) => void;
     },
-  ) {}
+  ) {
+    this.waits = new RoleWaits(deps.waitRetryMs);
+  }
 
   /**
    * The current role session (the latest that isn't retired), if any. Every method takes what
@@ -207,7 +233,12 @@ export class RoleSessions {
    */
   private async retire(session: Session, why: ReplaceReason): Promise<QueuedMessage[]> {
     const queued = await this.deps.sessions.stopKeepingQueue(session.id);
-    const reason = why === "fresh" ? "started fresh" : "moved to another provider";
+    const reason =
+      why === "fresh"
+        ? "started fresh"
+        : why === "placed"
+          ? "moved to another device"
+          : "moved to another provider";
     for (const item of this.deps.inbox.list({ sessionId: session.id })) {
       if (item.kind !== "run_failed") continue;
       this.deps.inbox.close(item, "dismissed", { reason });
@@ -244,8 +275,9 @@ export class RoleSessions {
     const replaced = this.retired.get(key);
     const plan = existing ? given : (replaced?.plan ?? given);
     let created: Session;
+    let target: RoleTarget;
     try {
-      created = await this.create(role, of, plan);
+      ({ session: created, target } = await this.create(role, of, plan));
     } catch (error) {
       if (existing && (queued.length > 0 || given.why === "fresh" || given.why === "limit")) {
         this.deps.repo.update(existing.id, (s) => ({ ...s, archivedAt: null }));
@@ -256,7 +288,12 @@ export class RoleSessions {
     }
     this.deps.sessions.adoptQueued(created.id, [...(plan.first ? [plan.first] : []), ...queued]);
     this.retired.delete(key);
-    if (replaced) this.deps.onMoved?.(replaced.session, created, plan.why);
+    if (replaced) {
+      const fellBackFrom = this.deps.repo.find(replaced.session.id)?.startMeta?.placementFallback
+        ?.machineId;
+      const move = this.deps.placement?.move(replaced.session, created, target, fellBackFrom);
+      this.deps.onMoved?.(replaced.session, created, plan.why, move);
+    }
     return created;
   }
 
@@ -337,11 +374,96 @@ export class RoleSessions {
       }
       const existing = this.find(role, of);
       const plan = existing && this.retirement(existing);
-      if (existing && !plan) return existing;
-      const session = await this.exclusive(key, () =>
-        this.replace(existing, role, of, true, plan ?? MOVED),
-      );
+      if (existing && !plan && !this.mayMoveDevice(existing, role, of)) return existing;
+      const session = await this.exclusive(key, async () => {
+        if (!existing || plan) return this.replace(existing, role, of, true, plan ?? MOVED);
+        const placed = await this.deviceMove(existing, role, of);
+        return placed ? this.replace(existing, role, of, true, placed) : existing;
+      });
       if (session) return session;
+    }
+  }
+
+  /**
+   * Whether the role's session may have to move to another device (§D.4): a "Runs on" other
+   * than the server, or a session that isn't on the server. Cheap, so a role on the server, as
+   * it was set, is looked up without waiting. Never while a turn is under way.
+   */
+  private mayMoveDevice(session: Session, role: OrchestrationRole, of: string | null): boolean {
+    const placement = this.deps.placement;
+    if (!placement) return false;
+    if (isActiveSession(session) || this.deps.sessions.isDelivering(session.id)) return false;
+    return placement.setting(role, of) !== "server" || placement.deviceOf(session) !== "server";
+  }
+
+  /**
+   * A move of the role's session to another device, or null while it stays (§D.4): its "Runs
+   * on" names another device that can take it, the machine it names can't take the turn (the
+   * server does), or can again. When neither the machine nor the server can, it stays and the
+   * role waits (`waitingOn`), trying again after a while.
+   */
+  private async deviceMove(
+    session: Session,
+    role: OrchestrationRole,
+    of: string | null,
+  ): Promise<Replacement | null> {
+    const placement = this.deps.placement;
+    if (!placement) return null;
+    const target = await placement.target(role, of);
+    const current = this.find(role, of);
+    if (!current || current.id !== session.id) return null;
+    if (isActiveSession(current) || this.deps.sessions.isDelivering(current.id)) return null;
+    const key = keyOf(role, of);
+    const from = placement.deviceOf(current);
+    if (target.kind === "nowhere") {
+      if (from === ROLE_ON_SERVER) {
+        this.stopWaiting(key);
+        return null;
+      }
+      this.wait(role, of, {
+        machineId: target.machineId,
+        message: `${target.reason}, and the server can't take over right now; your message waits and goes as soon as one of them can.`,
+      });
+      return null;
+    }
+    this.stopWaiting(key);
+    return targetDevice(target) === from ? null : PLACED;
+  }
+
+  /** Why the role's messages wait for a device (§D.4), or undefined when one can take them. */
+  waitingOn(role: OrchestrationRole, of: string | null): PlacementWait | undefined {
+    return this.waits.get(keyOf(role, of));
+  }
+
+  private wait(role: OrchestrationRole, of: string | null, why: PlacementWait): void {
+    this.waits.wait(keyOf(role, of), why, () =>
+      this.ensure(role, of).catch((error) =>
+        this.deps.log?.(`role sessions: ${role}: ${String(error)}`),
+      ),
+    );
+  }
+
+  private stopWaiting(key: string): void {
+    this.waits.stop(key);
+  }
+
+  /**
+   * The role's "Runs on" changed (§D.4): retire its session now when no turn is running and it
+   * is to run elsewhere; the next message starts it there (at once, with what was queued). A
+   * session with a turn under way moves at the role's next message or wake.
+   */
+  async applyPlacement(role: OrchestrationRole, of: string | null): Promise<void> {
+    const key = keyOf(role, of);
+    try {
+      if (this.changing.has(key)) return;
+      const session = this.find(role, of);
+      if (!session || !this.mayMoveDevice(session, role, of)) return;
+      await this.exclusive(key, async () => {
+        const placed = await this.deviceMove(session, role, of);
+        return placed ? this.replace(session, role, of, false, placed) : session;
+      });
+    } catch (error) {
+      this.deps.log?.(`role sessions: could not move the ${role} session: ${String(error)}`);
     }
   }
 
@@ -418,12 +540,20 @@ export class RoleSessions {
     });
   }
 
-  /** Start the role's session: as settings say, or on the plan's provider while it is loaded. */
+  /**
+   * Start the role's session: as settings say, or on the plan's provider while it is loaded,
+   * on the device its "Runs on" names when that device can take it, else on the server (§D.4).
+   */
   private async create(
     role: OrchestrationRole,
     of: string | null,
     plan: Replacement = MOVED,
-  ): Promise<Session> {
+  ): Promise<{ session: Session; target: RoleTarget }> {
+    // A role with no device that can take it starts on the server, as it always has.
+    const found = (await this.deps.placement?.target(role, of)) ?? { kind: "server" };
+    const target: RoleTarget = found.kind === "nowhere" ? { kind: "server" } : found;
+    const machine = target.kind === "machine" ? target : null;
+    const onMachine = (id: string) => machine?.placement.port.providers().some((p) => p.id === id);
     const project = role === "pm" && of ? this.deps.projects.get(of) : null;
     if (role === "pm" && !project) {
       throw new ServiceError(400, "project_required", "A PM needs a project");
@@ -439,9 +569,14 @@ export class RoleSessions {
       startedBy: { kind: "user" },
       title: project ? `PM · ${project.name}` : "Orchestrator",
       autonomy: "auto",
-      ...(plan.provider && this.loaded(plan.provider) && { provider: plan.provider }),
+      ...(machine
+        ? { provider: plan.provider && onMachine(plan.provider) ? plan.provider : machine.provider }
+        : plan.provider && this.loaded(plan.provider) && { provider: plan.provider }),
     });
-    const result = await this.deps.sessions.start(request, person ? { ownerMemberId: person } : {});
+    const result = await this.deps.sessions.start(request, {
+      ...(person ? { ownerMemberId: person } : {}),
+      ...(machine ? { machine: machine.placement } : {}),
+    });
     if (result.status !== "started") {
       throw new ServiceError(409, "role_session_conflict", `Could not start the ${role} session`);
     }
@@ -452,6 +587,13 @@ export class RoleSessions {
     if (fallback && session.provider === plan.provider && session.provider !== fallback.home) {
       this.deps.repo.setStartMeta(session.id, (meta) => ({ ...(meta ?? EMPTY_META), fallback }));
     }
-    return session;
+    if (target.kind === "server" && target.fallback) {
+      const placementFallback = { machineId: target.fallback.machineId };
+      this.deps.repo.setStartMeta(session.id, (meta) => ({
+        ...(meta ?? EMPTY_META),
+        placementFallback,
+      }));
+    }
+    return { session, target };
   }
 }

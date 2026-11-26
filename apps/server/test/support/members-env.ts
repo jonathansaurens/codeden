@@ -146,6 +146,7 @@ export function projectFixture(id: string): Project {
     timezone: null,
     agentCiEnv: true,
     execution: { backend: "local" },
+    pmRunsOn: "server",
     pinned: false,
     sortOrder: 0,
     createdAt: at,

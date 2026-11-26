@@ -147,7 +147,12 @@ export const RunnerCommand = z.discriminatedUnion("name", [
       sessionId: Id,
       /** The project's folder on the runner's machine; required except for `clone`. */
       repoPath: z.string().min(1).optional(),
-      strategy: z.enum(["worktree", "repo_root", "existing", "clone"]),
+      /**
+       * `folder`: a folder of the runner's own home (`folder`), made when missing: the working
+       * directory of a role session on a runner that doesn't share the server's disk (an
+       * orchestrator's `orchestrator/<member id>`, `docs/machines-teams-and-agents.md` §D.4).
+       */
+      strategy: z.enum(["worktree", "repo_root", "existing", "clone", "folder"]),
       /** Target directory for `worktree` / `existing`. */
       path: z.string().optional(),
       branch: z.string().optional(),
@@ -188,6 +193,18 @@ export const RunnerCommand = z.discriminatedUnion("name", [
        * own. Needs `projectSlug`. The result's `repoPath` is the project's clone.
        */
       perProject: z.boolean().optional(),
+      /**
+       * `clone` with `perProject`, for a PM (§D.4): the session works in the project's clone
+       * itself, read-only, instead of a worktree of it. The clone is fetched and its checked-out
+       * branch fast-forwarded to its remote copy; sent again before each of the PM's turns.
+       */
+      projectRoot: z.boolean().optional(),
+      /** `folder`: the folder, relative to the runner's home (`orchestrator/<member id>`). */
+      folder: z
+        .string()
+        .regex(/^[A-Za-z0-9_-][A-Za-z0-9._-]*(\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/)
+        .max(200)
+        .optional(),
       /** `clone` and `fetch`: the credential for that git operation only (§9.2). */
       credential: GitCredential.optional(),
     })
@@ -197,6 +214,19 @@ export const RunnerCommand = z.discriminatedUnion("name", [
           code: "custom",
           path: ["projectSlug"],
           message: "perProject needs projectSlug",
+        });
+      }
+      if (cmd.strategy === "folder") {
+        if (!cmd.folder) {
+          ctx.addIssue({ code: "custom", path: ["folder"], message: "folder needs folder" });
+        }
+        return;
+      }
+      if (cmd.projectRoot && !cmd.perProject) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["projectRoot"],
+          message: "projectRoot needs perProject",
         });
       }
       if (cmd.strategy === "clone" ? !cmd.remoteUrl : !cmd.repoPath) {

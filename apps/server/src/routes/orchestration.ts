@@ -5,6 +5,8 @@ import {
   RoleMessageRequest,
   type RoleMessageResponse,
   type RoleSessionResponse,
+  type RunsOnResponse,
+  SetRunsOnRequest,
   StartFreshRoleRequest,
   type StartFreshRoleResponse,
 } from "@codeden/contracts";
@@ -14,7 +16,7 @@ import { principalOf } from "../members/principal";
 import { authorizeContext } from "../members/sockets";
 import type { AppServices } from "../services/container";
 import { forbidden } from "../services/errors";
-import { personKey } from "../services/orchestration/role-keys";
+import { memberOfKey, personKey } from "../services/orchestration/role-keys";
 import { jsonBody, queryOf } from "./validate";
 
 /**
@@ -74,6 +76,29 @@ export function orchestrationRoutes(s: AppServices) {
       .post("/orchestrator/start-fresh", jsonBody(StartFreshRoleRequest), async (c) =>
         c.json(await startFresh("orchestrator", personOf(c), c.req.valid("json").sessionId)),
       )
+      // Where the caller's orchestrator runs (§D.4): the server or a machine they may use.
+      .get("/orchestrator/runs-on", async (c) => {
+        const person = personOf(c);
+        const member = memberOfKey(person);
+        return c.json<RunsOnResponse>({
+          runsOn: s.preferences.orchestratorRunsOn(member),
+          choices: await s.rolePlacement.choices("orchestrator", person, member),
+        });
+      })
+      .put("/orchestrator/runs-on", jsonBody(SetRunsOnRequest), async (c) => {
+        const person = personOf(c);
+        const member = memberOfKey(person);
+        const { runsOn } = c.req.valid("json");
+        const refused = s.rolePlacement.refusal("orchestrator", null, member, runsOn);
+        if (refused) throw refused;
+        s.preferences.setOrchestratorRunsOn(member, runsOn);
+        // Moved now when idle, else after its turn; the request doesn't wait for the stop.
+        void o.roles.applyPlacement("orchestrator", person);
+        return c.json<RunsOnResponse>({
+          runsOn,
+          choices: await s.rolePlacement.choices("orchestrator", person, member),
+        });
+      })
       .get("/projects/:projectId/pm", (c) => c.json(pmSession(c.req.param("projectId"))))
       .post("/projects/:projectId/pm", async (c) => {
         const projectId = c.req.param("projectId");

@@ -64,6 +64,7 @@ import { isTransientRunnerError, isTurnRunningError, OutboxHolds } from "./outbo
 import { planModeUnsupported, readOnlyUnsupported } from "./permissions";
 import {
   assertProviderOnMachine,
+  type MachinePlacement,
   type MachinePlacer,
   machineFor,
   placeAutomatically,
@@ -227,11 +228,12 @@ export class SessionService {
 
   /**
    * Start a session. `opts.ownerMemberId` is the person an orchestrator session belongs to
-   * (§D.1), set by `RoleSessions` only; absent: the first owner's.
+   * (§D.1), and `opts.machine` the machine a role session runs on (§D.4), both set by
+   * `RoleSessions` only; absent: the first owner's, and the server.
    */
   async start(
     req: StartSessionRequest,
-    opts: { ownerMemberId?: string } = {},
+    opts: { ownerMemberId?: string; machine?: MachinePlacement } = {},
   ): Promise<StartSessionResponse> {
     // The opening message is the user's when a person (or connected agent) started it (§B.4).
     if (req.input) {
@@ -287,7 +289,10 @@ export class SessionService {
     }
 
     const queued = queuedBehind.length > 0;
-    const target = machineFor(this.deps.machines, req, project);
+    const target =
+      req.role !== "agent" && opts.machine
+        ? opts.machine
+        : machineFor(this.deps.machines, req, project);
     const machine = target === "auto" ? null : target;
     const session = this.buildSession(
       req,
@@ -400,10 +405,17 @@ export class SessionService {
   }
 
   /** Send now, steer or queue (`whenBusy`); `from` labels the message if it is queued. */
+  /**
+   * Send now, steer or queue (`whenBusy`); `from` labels the message if it is queued. With
+   * `opts.holdWhenUnavailable`, a message the session's runner can't take now waits in the queue
+   * for it, as CodeDen's own messages do, also when it is the user's (a role whose device and the
+   * server are both away, §D.4).
+   */
   async send(
     id: string,
     req: SendMessageRequest,
     from: QueueSender = "user",
+    opts: { holdWhenUnavailable?: boolean } = {},
   ): Promise<SendMessageResponse> {
     const sent = asSent(req.input, from);
     req = { ...req, input: sent.input };
@@ -443,7 +455,8 @@ export class SessionService {
       }
       // CodeDen's own roles never lose a message to a runner restart: it waits in the queue.
       // The user sees the error instead; a wake (`reject`) is retried by its scheduler.
-      if (from === "user" || req.whenBusy === "reject" || !isTransientRunnerError(error)) {
+      const mayHold = from !== "user" || opts.holdWhenUnavailable === true;
+      if (!mayHold || req.whenBusy === "reject" || !isTransientRunnerError(error)) {
         throw error;
       }
       this.holds.hold(id, true);
@@ -779,6 +792,8 @@ export class SessionService {
       archivedAt: s.role === "agent" ? null : (s.archivedAt ?? null),
     }));
     try {
+      // A PM on a machine reads the project's clone there: fetched before each turn (§D.4).
+      if (session.role === "pm") await this.deps.launcher.refreshRoleClone?.(session);
       // Cleanup removed the worktree (§9), or a container session's start failed and took its
       // container with it: make it again, then resume through the provider.
       if (session.worktreeRemovedAt || this.needsSandbox(session)) {

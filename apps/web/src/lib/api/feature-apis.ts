@@ -48,6 +48,7 @@ import type {
   Overview,
   ProjectStatus,
   RoleMessageResponse,
+  RunsOnResponse,
   SecretKey,
   SecretsStatus,
   Session,
@@ -219,6 +220,10 @@ export interface OrchestrationApi {
     projectId: string | null,
     sessionId: string,
   ): Promise<StartFreshRoleResponse>;
+  /** Where the caller's orchestrator runs, and the devices they may choose (§D.4). */
+  runsOn(): Promise<RunsOnResponse>;
+  /** Move the caller's orchestrator to the server or a machine; it moves once no turn runs. */
+  setRunsOn(runsOn: string): Promise<RunsOnResponse>;
   projectStatus(projectId: string): Promise<ProjectStatus>;
   overview(): Promise<Overview>;
   notices(query?: {

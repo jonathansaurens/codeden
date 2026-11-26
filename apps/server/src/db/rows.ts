@@ -54,6 +54,7 @@ export function projectToRow(p: Project): ProjectRow {
     // Events written before the setting existed carry none: those projects run locally.
     executionBackend: p.execution?.backend ?? "local",
     executionMachine: p.execution?.machine ?? null,
+    pmRunsOn: p.pmRunsOn ?? "server",
     pinned: p.pinned,
     sortOrder: p.sortOrder,
     github: p.kind === "github" ? p.github : null,

@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { StatusDot } from "@/components/common/status-dot";
 import { ReadOnlyBadge, RoleBadge } from "@/components/orchestration/role-badge";
+import { RunsOnMenu } from "@/components/orchestration/runs-on-menu";
 import { useStartFresh } from "@/components/orchestration/start-fresh";
 import { MobileNavButton } from "@/components/shell/mobile-nav";
 import { Button } from "@/components/ui/button";
@@ -332,6 +333,7 @@ export function ThreadHeader({ session, running }: { session: Session; running: 
             {fresh.available && (
               <>
                 <DropdownMenuSeparator />
+                {session.role === "orchestrator" && <RunsOnMenu session={session} />}
                 <DropdownMenuItem
                   disabled={fresh.blocked !== null}
                   title={fresh.blocked ?? undefined}

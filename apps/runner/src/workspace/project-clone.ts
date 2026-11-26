@@ -1,10 +1,10 @@
 import { existsSync, readdirSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import type { RunnerCommandOf } from "@codeden/contracts";
 import { CommandError } from "../errors";
 import { type GitOptions, git, gitOk, gitText } from "../git/exec";
-import { defaultBranch } from "../git/ops";
+import { currentBranch, defaultBranch } from "../git/ops";
 
 /** Where a project's shared clone lives on this runner (`docs/machines-teams-and-agents.md` §A.4). */
 export function projectClonePath(home: string, slug: string): string {
@@ -71,4 +71,40 @@ export async function projectCloneBase(
   const base = cmd.baseRef ?? (await defaultBranch(repo)) ?? "HEAD";
   if (base === "HEAD" || base.startsWith("origin/")) return base;
   return (await has(`refs/remotes/origin/${base}`)) ? `origin/${base}` : base;
+}
+
+/**
+ * `clone` with `perProject` and `projectRoot` (a PM, `docs/machines-teams-and-agents.md` §D.4):
+ * the project's clone itself, fetched, with its checked-out branch fast-forwarded to its remote
+ * copy so the PM reads the code as it is on GitHub now. A branch that can't be fast-forwarded
+ * (someone committed in the clone) is left as it is. Nothing is set up: the PM never builds.
+ */
+export async function projectRootClone(
+  cmd: RunnerCommandOf<"workspace.prepare">,
+  home: string,
+): Promise<{ cwd: string; branch: string | null; created: boolean; repoPath: string }> {
+  const repoPath = await ensureProjectClone(cmd, home);
+  await git(repoPath, ["merge", "--ff-only", "-q", "@{upstream}"]).catch(() => undefined);
+  return { cwd: repoPath, branch: await currentBranch(repoPath), created: false, repoPath };
+}
+
+/**
+ * `folder` (§D.4): a folder of the runner's own home, made when missing, as the working directory
+ * of an orchestrator on this runner (`orchestrator/<member id>`). Never outside the home.
+ */
+export async function homeFolder(
+  cmd: RunnerCommandOf<"workspace.prepare">,
+  home: string,
+): Promise<{ cwd: string; branch: null; created: boolean }> {
+  const root = resolve(home);
+  const path = resolve(root, cmd.folder ?? "");
+  const inside = relative(root, path);
+  if (!cmd.folder || !inside || inside.startsWith("..") || inside.startsWith(sep)) {
+    throw new CommandError(
+      "bad_request",
+      `${cmd.folder ?? ""} is not a folder of the runner's home`,
+    );
+  }
+  await mkdir(path, { recursive: true });
+  return { cwd: path, branch: null, created: false };
 }

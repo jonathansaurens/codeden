@@ -127,6 +127,21 @@ export class MachineService {
     return placementRefusal(record, projectId, this.member, currentPrincipal());
   }
 
+  /**
+   * Why a role can't run on `record` (§D.4), or null when it may: someone's own computer takes
+   * only its person's orchestrator (`person`), and a PM only where its person is an Owner of
+   * the project, by the same rule as any work placed there (`placementRefusal`).
+   */
+  roleRefusal(
+    record: RunnerRecord,
+    projectId: string | null,
+    person: string | null,
+  ): string | null {
+    const member = person ? this.member(person) : undefined;
+    const principal = member ? { member, via: "session" as const } : undefined;
+    return placementRefusal(record, projectId, this.member, principal);
+  }
+
   /** "Alice's computer (alice-mbp)", or the label of a machine over SSH. */
   computerName(record: RunnerRecord): string {
     return computerName(record, this.member);

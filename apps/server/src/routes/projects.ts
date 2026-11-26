@@ -2,6 +2,7 @@ import {
   ArchivedSessionsQuery,
   CreateProjectRequest,
   checksOf,
+  OWNER_MEMBER_ID,
   type ProjectChecksResponse,
   ProjectCommandsQuery,
   ReorderProjectsRequest,
@@ -11,6 +12,7 @@ import {
 } from "@codeden/contracts";
 import { Hono } from "hono";
 import { z } from "zod";
+import { principalOf } from "../members/principal";
 import type { AppServices } from "../services/container";
 import { badRequest } from "../services/errors";
 import { listFolderFiles } from "../services/files/session-files";
@@ -58,7 +60,21 @@ export function projectRoutes(s: AppServices) {
           );
         }
       }
-      return c.json(s.projects.update(c.req.param("id"), patch));
+      // Where the PM runs (§D.4): an Owner's choice, among the machines they may use.
+      if (patch.pmRunsOn !== undefined) {
+        const member = principalOf(c)?.member.id ?? OWNER_MEMBER_ID;
+        const id = c.req.param("id");
+        const refused = s.rolePlacement.refusal(
+          "pm",
+          s.projects.get(id).id,
+          member,
+          patch.pmRunsOn,
+        );
+        if (refused) throw refused;
+      }
+      const project = s.projects.update(c.req.param("id"), patch);
+      if (patch.pmRunsOn !== undefined) void s.orchestration.roles.applyPlacement("pm", project.id);
+      return c.json(project);
     })
     .get("/:id/commands", queryOf(ProjectCommandsQuery), (c) =>
       c.json<SlashCommandList>(

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   type McpServerConfig,
+  OWNER_MEMBER_ID,
   type Project,
   type Session,
   SessionOptions,
@@ -26,7 +27,7 @@ import {
   runnerForSession,
   runnerUnavailable,
 } from "../runner-port";
-import { type PreparedWorkspace, prepareCloneWorkspace } from "./clone-workspace";
+import { type PreparedWorkspace, prepareCloneWorkspace, prepareRoleClone } from "./clone-workspace";
 import { slugWords } from "./conflicts";
 import type { ForkStart } from "./fork";
 import { withHandoffBrief } from "./handoff";
@@ -88,6 +89,8 @@ export interface LaunchOptions {
 }
 
 const PREPARE_TIMEOUT_MS = 10 * 60_000;
+/** How long a PM's turn waits for its clone's fetch (§D.4) before going ahead without it. */
+const ROLE_CLONE_REFRESH_MS = 60_000;
 const START_TIMEOUT_MS = 60_000;
 /**
  * `session.start` refusals after which no provider process of the session runs on the runner:
@@ -517,6 +520,58 @@ export class SessionLauncher {
     throw runnerUnavailable(runner);
   }
 
+  /**
+   * An orchestrator's working directory (§D.4): `<home>/orchestrator/<member id>` on Home (the
+   * first owner's stays `<home>/orchestrator/`, so existing installs don't move), and
+   * `<runner home>/orchestrator/<member id>` on a runner that doesn't share this disk, which
+   * makes it itself.
+   */
+  private async orchestratorWorkspace(
+    runner: RunnerPort,
+    session: Session,
+  ): Promise<PreparedWorkspace> {
+    const member = session.ownerMemberId ?? OWNER_MEMBER_ID;
+    if (clonesWorkspaces(runner)) {
+      const result = await runner.request(
+        {
+          name: "workspace.prepare",
+          sessionId: session.id,
+          strategy: "folder",
+          folder: `orchestrator/${folderName(member)}`,
+          setupCommands: [],
+          runProjectSetup: false,
+        },
+        PREPARE_TIMEOUT_MS,
+      );
+      return plain(result.cwd);
+    }
+    const dir =
+      member === OWNER_MEMBER_ID
+        ? this.deps.orchestratorDir
+        : join(this.deps.orchestratorDir, folderName(member));
+    mkdirSync(dir, { recursive: true });
+    return plain(dir);
+  }
+
+  /**
+   * Bring a PM's clone on its machine up to date before its turn (§D.4): fetched, its branch
+   * fast-forwarded. Nothing for a PM on the server, which reads the project folder itself. A
+   * fetch that fails (offline, GitHub away) leaves the clone as it is: the turn still goes.
+   */
+  async refreshRoleClone(session: Session): Promise<void> {
+    if (session.role !== "pm" || !session.projectId) return;
+    const runner = runnerForSession(this.deps, session.id);
+    if (!runner.isConnected() || !clonesWorkspaces(runner)) return;
+    try {
+      const project = this.deps.projects.get(session.projectId);
+      await prepareRoleClone(this.deps.git, runner, session, project, ROLE_CLONE_REFRESH_MS);
+    } catch (error) {
+      this.deps.log?.(
+        `session ${session.id}: could not refresh the PM's clone: ${errorMessage(error)}`,
+      );
+    }
+  }
+
   private async prepareWorkspace(
     runner: RunnerPort,
     session: Session,
@@ -524,9 +579,17 @@ export class SessionLauncher {
     req: WorkspaceRequest,
     fork?: LaunchFork,
   ): Promise<PreparedWorkspace> {
-    if (!project) {
-      mkdirSync(this.deps.orchestratorDir, { recursive: true });
-      return plain(this.deps.orchestratorDir);
+    if (!project) return this.orchestratorWorkspace(runner, session);
+    // A PM on a machine reads the project's clone there, read-only (§D.4).
+    if (clonesWorkspaces(runner) && session.role === "pm" && runner.remote?.().projectClones) {
+      const ws = await prepareRoleClone(
+        this.deps.git,
+        runner,
+        session,
+        project,
+        PREPARE_TIMEOUT_MS,
+      );
+      return ws;
     }
     // A sandbox's runner works in its own clone, at a path it chooses (§9.1).
     if (clonesWorkspaces(runner)) {
@@ -605,4 +668,10 @@ function plain(cwd: string): PreparedWorkspace {
 
 function defaultMeta(workspace: WorkspaceRequest) {
   return { workspaceMode: workspace.mode, workspaceFallback: null, forced: null, queuedBehind: [] };
+}
+
+/** A member id as a folder name: letters, digits, `_` and `-` only. */
+function folderName(memberId: string): string {
+  const safe = memberId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120);
+  return /^[A-Za-z0-9_-]/.test(safe) ? safe : `m${safe}`;
 }

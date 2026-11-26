@@ -83,6 +83,8 @@ export const projects = sqliteTable(
       .default("local"),
     /** With backend `ssh`: the machine's label (`Project.execution.machine`). */
     executionMachine: text("execution_machine"),
+    /** Where the project's PM runs (`Project.pmRunsOn`, §D.4): `server` or a machine's id. */
+    pmRunsOn: text("pm_runs_on").notNull().default("server"),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     /** Manual list position (§13); the migration backfills it from the alphabetical order. */
     sortOrder: integer("sort_order").notNull().default(0),

@@ -33,6 +33,7 @@ function project(
     timezone: null,
     agentCiEnv: true,
     execution: { backend: "local" as const },
+    pmRunsOn: "server",
     pinned: false,
     sortOrder: 0,
     createdAt: ago(60 * 24 * 12),

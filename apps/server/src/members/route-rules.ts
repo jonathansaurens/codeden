@@ -232,6 +232,8 @@ export const ROUTE_RULES: Readonly<Record<string, RouteRule>> = {
   "POST /orchestration/orchestrator": o("own"),
   "POST /orchestration/orchestrator/messages": o("own"),
   "POST /orchestration/orchestrator/start-fresh": o("own"),
+  "GET /orchestration/orchestrator/runs-on": v("own"),
+  "PUT /orchestration/orchestrator/runs-on": o("own"),
   "GET /orchestration/projects/:projectId/pm": v(project("projectId")),
   "POST /orchestration/projects/:projectId/pm": o(project("projectId")),
   "POST /orchestration/projects/:projectId/pm/messages": o(project("projectId")),

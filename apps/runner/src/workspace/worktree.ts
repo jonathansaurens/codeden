@@ -10,7 +10,12 @@ import { currentBranch, defaultBranch } from "../git/ops";
 import type { ProcessSupervisor } from "../process/supervisor";
 import { endProcessesInside } from "../process/worktree-processes";
 import { prepareClone } from "./clone";
-import { ensureProjectClone, projectCloneBase } from "./project-clone";
+import {
+  ensureProjectClone,
+  homeFolder,
+  projectCloneBase,
+  projectRootClone,
+} from "./project-clone";
 import { PROJECT_CONFIG_PATH, readProjectConfig } from "./project-config";
 import { pruneWorktrees, removeWorkspace, worktreeState } from "./removal";
 import { runSetup, type SetupStep } from "./setup";
@@ -221,9 +226,14 @@ export async function prepareWorkspace(
       break;
     }
     case "clone":
-      target = cmd.perProject
-        ? await projectWorktree(cmd, ctx)
-        : await prepareClone(cmd, ctx.home, sessionShort(cmd.sessionId));
+      target = !cmd.perProject
+        ? await prepareClone(cmd, ctx.home, sessionShort(cmd.sessionId))
+        : cmd.projectRoot
+          ? await projectRootClone(cmd, ctx.home)
+          : await projectWorktree(cmd, ctx);
+      break;
+    case "folder":
+      target = await homeFolder(cmd, ctx.home);
       break;
   }
 

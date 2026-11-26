@@ -22,6 +22,7 @@ import {
   type MemberLookup,
   membersOf,
 } from "../../members/acting";
+import type { MemberPreferences } from "../../members/preferences";
 import type { SettingsStore } from "../../settings-store";
 import type { ArtifactService } from "../artifacts";
 import { isValidTimezone, machineTimezone } from "../automations/cron";
@@ -64,6 +65,8 @@ import {
 import { Reminders } from "./reminders";
 import { memberOfKey, parseWakeKey, personKey, wakeKey } from "./role-keys";
 import { RoleLimitSwitch } from "./role-limit-switch";
+import type { RolePlacement } from "./role-placement";
+import { RolePlacementNotes } from "./role-placement-notes";
 import { type OrchestrationRole, RoleSessions } from "./role-sessions";
 import { TurnAuthority } from "./turn-authority";
 import { type WakeResult, WakeScheduler, type WakeSchedulerOptions } from "./wake-scheduler";
@@ -93,6 +96,10 @@ export interface OrchestrationDeps {
   github?: GithubPort;
   /** Members, for whom role turns act (§D.2). */
   members: MemberLookup;
+  /** Where the orchestrators and PMs run (§D.4); without it, always on the server. */
+  placement?: RolePlacement;
+  /** Each person's preferences (their orchestrator's "Runs on"), forgotten with the member. */
+  preferences?: Pick<MemberPreferences, "forget">;
   /** The project's trusted authors, whose PR reviews count without write access. Default: none. */
   trustedAuthors?: TrustedAuthors;
   automation?: AutomationPort;
@@ -131,15 +138,18 @@ export class OrchestrationService {
   private readonly delivery: NoticeDelivery;
   /** Moves a role to another provider when its own hits its usage limit (§8.1). */
   private readonly limits: RoleLimitSwitch;
+  /** "Moved to vps-1" and the like in a role's chat (§D.4). */
+  private readonly placementNotes: RolePlacementNotes;
   private unsubscribe: (() => void) | undefined;
 
   constructor(private readonly deps: OrchestrationDeps) {
     this.roles = new RoleSessions({
       ...deps,
       // An `ask_pm` whose question moved with the queue gets its answer from the new session.
-      onMoved: (from, to, why) => {
+      onMoved: (from, to, why, move) => {
         this.asks.retarget(from.id, to.id);
         this.limits.moved(from, to, why);
+        if (move) this.placementNotes.add(to.id, { data: move, message: move.message });
       },
     });
     this.limits = new RoleLimitSwitch({
@@ -148,6 +158,7 @@ export class OrchestrationService {
       ready: deps.readyProviders,
       timezone: () => this.timezone(),
     });
+    this.placementNotes = new RolePlacementNotes(deps);
     this.notices = new NoticeStore(deps.db, deps.store);
     this.authority = new TurnAuthority(deps.repo);
     this.cards = new NoticeCards(deps.store);
@@ -376,7 +387,16 @@ export class OrchestrationService {
     from: QueueSender = "user",
   ): Promise<RoleMessageResponse> {
     const session = await this.roles.ensure(role, of);
-    const res = await this.deps.sessions.send(session.id, { input, whenBusy }, from);
+    // Neither its machine nor the server can take it now: the message waits for one (§D.4).
+    const waiting = this.roles.waitingOn(role, of);
+    if (waiting) {
+      const to = waiting.machineId;
+      const data = { reason: "waiting" as const, from: to, to };
+      this.placementNotes.now(session, { data, message: waiting.message });
+    }
+    const res = await this.deps.sessions.send(session.id, { input, whenBusy }, from, {
+      holdWhenUnavailable: waiting !== undefined,
+    });
     return { sessionId: session.id, status: res.status };
   }
 
@@ -550,10 +570,12 @@ export class OrchestrationService {
 
   private onEvents(events: RawEventEnvelope[]): void {
     this.asks.onEvents(events);
+    this.placementNotes.onEvents(events);
     // A deleted member's orchestrator is retired (§D.1); its transcript stays, unseen.
     for (const e of events) {
       if (e.type !== "member.deleted") continue;
       const { memberId } = e.payload as { memberId: string };
+      this.deps.preferences?.forget(memberId);
       void this.roles
         .retirePerson(memberId)
         .catch((error) =>
