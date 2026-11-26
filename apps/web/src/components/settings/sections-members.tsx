@@ -86,7 +86,8 @@ const ACTIVITY_LABEL: Record<string, string> = {
   "member.updated": "Changed a member",
   "member.deleted": "Deleted a member",
   "session.created": "Started a session",
-  "session.updated": "Changed a session",
+  "session.stopped": "Stopped a session",
+  "turn.started": "Sent a message",
   "message.queued": "Queued a message",
   "inbox.updated": "Answered or closed an inbox item",
   "project.created": "Added a project",
@@ -94,7 +95,6 @@ const ACTIVITY_LABEL: Record<string, string> = {
   "project.archived": "Archived a project",
   "automation.saved": "Saved an automation",
   "automation.deleted": "Deleted an automation",
-  "automation_run.updated": "Ran an automation",
 };
 
 /** Who did what lately (§B.4): settings changes, stops, answers and more. */

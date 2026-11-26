@@ -15,9 +15,10 @@ import {
   OWNER_MEMBER_ID,
   UpdateMemberRequest,
 } from "@codeden/contracts";
-import { desc, isNotNull } from "drizzle-orm";
+import { and, desc, inArray, isNotNull } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { events } from "../db/schema";
+import { ACTIVITY_QUERY_TYPES, activityOf } from "../members/activity";
 import type { MemberAuth } from "../members/auth";
 import { type Principal, principalOf } from "../members/principal";
 import type { NetworkAccess } from "../network/access";
@@ -25,8 +26,9 @@ import type { AppServices } from "../services/container";
 import { forbidden, notFound, ServiceError } from "../services/errors";
 import { jsonBody } from "./validate";
 
-/** Events in the activity list. */
+/** Events in the activity list, and the rows read to find them (stops hide among updates). */
 const ACTIVITY_LIMIT = 100;
+const ACTIVITY_SCAN = 1000;
 
 export interface MemberRouteContext {
   services: AppServices;
@@ -101,14 +103,18 @@ export function memberRoutes(ctx: MemberRouteContext) {
             actor: events.actor,
             sessionId: events.sessionId,
             ts: events.ts,
+            payload: events.payload,
           })
           .from(events)
-          .where(isNotNull(events.actor))
+          .where(and(isNotNull(events.actor), inArray(events.type, ACTIVITY_QUERY_TYPES)))
           .orderBy(desc(events.seq))
-          .limit(ACTIVITY_LIMIT)
+          .limit(ACTIVITY_SCAN)
           .all();
         const body: MemberActivityResponse = {
-          events: rows.flatMap((r) => (r.actor ? [{ ...r, actor: r.actor }] : [])),
+          events: activityOf(
+            rows.flatMap((r) => (r.actor ? [{ ...r, actor: r.actor }] : [])),
+            ACTIVITY_LIMIT,
+          ),
         };
         return c.json(body);
       })
