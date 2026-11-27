@@ -1,4 +1,4 @@
-import type { ItemOf } from "@codeden/contracts";
+import { type ItemOf, PROVIDER_SWITCH_CODE, ROLE_PLACEMENT_CODE } from "@codeden/contracts";
 import { useMutation } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -102,8 +102,23 @@ export function TodoCard({ item }: { item: ItemOf<"todo_list"> }) {
   );
 }
 
+/**
+ * The words shown at a notice's right edge for CodeDen's own notice codes; a provider's code
+ * (`retrying`, `context_compacted`, ...) shows as it is.
+ */
+const NOTICE_LABELS: Readonly<Record<string, string>> = {
+  [ROLE_PLACEMENT_CODE]: "Runs on",
+  [PROVIDER_SWITCH_CODE]: "Provider switch",
+};
+
+/** The label at a notice's right edge, if any. */
+export function noticeLabel(code: string | undefined): string | undefined {
+  return code ? (NOTICE_LABELS[code] ?? code) : undefined;
+}
+
 /** Typed notices render as slim, quiet rows. */
 export function NoticeCard({ item }: { item: ItemOf<"notice"> }) {
+  const label = noticeLabel(item.code);
   const warn = item.level === "warning";
   const Icon = warn ? AlertTriangle : Info;
   return (
@@ -117,8 +132,12 @@ export function NoticeCard({ item }: { item: ItemOf<"notice"> }) {
     >
       <Icon className="size-3.5 shrink-0" />
       <span className="min-w-0 truncate">{item.message}</span>
-      {item.code && (
-        <span className="ml-auto shrink-0 font-mono text-3xs opacity-60">{item.code}</span>
+      {label && (
+        <span
+          className={cn("ml-auto shrink-0 text-3xs opacity-60", label === item.code && "font-mono")}
+        >
+          {label}
+        </span>
       )}
     </div>
   );

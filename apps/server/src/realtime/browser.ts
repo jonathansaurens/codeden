@@ -71,7 +71,8 @@ export class BrowserBridge {
     });
   }
 
-  handlers(query: BrowserWsQuery): WSEvents {
+  /** `readOnly` (a Viewer, §B.3): frames and state only; input, opening and resizing are dropped. */
+  handlers(query: BrowserWsQuery, opts: { readOnly?: boolean } = {}): WSEvents {
     let viewer: Viewer | undefined;
     return {
       onOpen: (_event, ws) => {
@@ -92,7 +93,9 @@ export class BrowserBridge {
         };
         this.add(viewer);
         const v = viewer;
-        void this.start(v, query.open === "1").catch((error: unknown) => this.fail(v, error));
+        void this.start(v, query.open === "1" && !opts.readOnly).catch((error: unknown) =>
+          this.fail(v, error),
+        );
       },
       onMessage: (event) => {
         if (!viewer) return;
@@ -103,6 +106,7 @@ export class BrowserBridge {
         } catch {
           return send(v.ws, { type: "error", code: "bad_message", message: "Invalid message" });
         }
+        if (opts.readOnly && msg.type !== "watch" && msg.type !== "unwatch") return;
         void this.handle(v, msg).catch((error: unknown) => this.fail(v, error));
       },
       onClose: () => {

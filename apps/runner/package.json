@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./link": "./src/link/runner-link.ts",
+    "./connect": "./src/link/runner-connect.ts",
     "./main": "./src/main.ts"
   },
   "scripts": {

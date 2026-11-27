@@ -1,10 +1,13 @@
 import type {
+  AddMachineRequest,
   ArchivedSessionsPage,
   ArchivedSessionsQueryInit,
   ArchiveSessionResponse,
   ClaudeSdkStatus,
   CompactSessionResponse,
   ConflictRecord,
+  ConnectCodeResponse,
+  ConnectCodeStatus,
   CreateProjectRequest,
   CreateProjectResponse,
   DiffResult,
@@ -26,6 +29,9 @@ import type {
   InboxItem,
   LoginCommandResponse,
   LoginToolId,
+  Machine,
+  MachinesResponse,
+  MachineWeight,
   Project,
   ProjectCheck,
   ProjectModelsResponse,
@@ -76,6 +82,7 @@ import type {
   SecretsApi,
   VoiceApi,
 } from "./feature-apis";
+import type { MembersApi } from "./members-api";
 import type { AuthApi, NetworkApi } from "./network-api";
 import type { QueueApi } from "./queue-api";
 import type { MentionCandidate, OpenTerminalOptions, TerminalChannel } from "./types";
@@ -209,6 +216,8 @@ export interface CodeDenClient {
   ): Promise<ResolveConflictResponse>;
 
   // Inbox (§11.1).
+  /** One item, open or not (who answered it, §B.4). */
+  getInboxItem(itemId: string): Promise<InboxItem>;
   resolveInbox(itemId: string, resolution: InboxResolution): Promise<InboxItem>;
   /**
    * Run a failed run's session again on its provider. Rejects with the reason (and fix) when
@@ -257,6 +266,44 @@ export interface CodeDenClient {
    */
   archiveProject(projectId: string): Promise<void>;
   readonly automations: AutomationsApi;
+
+  // Machines (`docs/machines-teams-and-agents.md` Part A): other computers reached over SSH.
+  /** Every machine with what its runner last reported, and the command they run CodeDen with. */
+  machines(): Promise<MachinesResponse>;
+  /**
+   * Check a machine over SSH (installing CodeDen there the first time) and add it. Slow; rejects
+   * with an `ApiRequestError` whose `code` is a `MachineCheckCode` and whose message says why.
+   */
+  addMachine(req: AddMachineRequest): Promise<Machine>;
+  /** A machine's preference for automatic placement. */
+  setMachineWeight(id: string, weight: MachineWeight): Promise<Machine>;
+  /** Home's own preference for automatic placement (`MachinesResponse.homeWeight`). */
+  setHomeWeight(weight: MachineWeight): Promise<MachineWeight>;
+  /**
+   * Remove a machine. Refused (409) with `machine_in_use` while sessions placed there aren't
+   * archived, and with `machine_unpushed` while a clone there has unpushed work (`force` removes
+   * it anyway).
+   */
+  removeMachine(id: string, opts?: { force?: boolean }): Promise<void>;
+  /**
+   * Reconnect a machine whose CodeDen data was wiped (`Machine.reinstalled`) as a new one, under
+   * the same name. Refused (409) with `machine_in_use` while sessions placed there aren't
+   * archived.
+   */
+  reconnectMachine(id: string): Promise<Machine>;
+  /**
+   * A pairing code for one of the caller's own computers (§D.5), with the command to run there;
+   * `serverUrl` is the address the command names.
+   */
+  createConnectCode(serverUrl: string): Promise<ConnectCodeResponse>;
+  /** Where a pairing code is: waiting, paired, connected or expired. */
+  connectCodeStatus(id: string): Promise<ConnectCodeStatus>;
+  /**
+   * Disconnect a connected computer (its person or an Owner): revokes its key. Refused like
+   * `removeMachine` while sessions are placed there or a clone holds unpushed work.
+   */
+  disconnectMachine(id: string, opts?: { force?: boolean }): Promise<void>;
+
   /** Autonomy modes, the vision, the factory panel and kill switches (§10.1, experimental). */
   readonly factory: FactoryApi;
 
@@ -268,6 +315,8 @@ export interface CodeDenClient {
   readonly network: NetworkApi;
   /** Sign-in for remote devices (§15.1). */
   readonly auth: AuthApi;
+  /** Members (§B.2): who I am and, for owners, everyone else. */
+  readonly members: MembersApi;
 
   // First-run setup (§14).
   /** Detection results; `refresh` re-runs every check instead of using the cache. */

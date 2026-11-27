@@ -53,6 +53,8 @@ export function projectToRow(p: Project): ProjectRow {
     agentCiEnv: p.agentCiEnv,
     // Events written before the setting existed carry none: those projects run locally.
     executionBackend: p.execution?.backend ?? "local",
+    executionMachine: p.execution?.machine ?? null,
+    pmRunsOn: p.pmRunsOn ?? "server",
     pinned: p.pinned,
     sortOrder: p.sortOrder,
     github: p.kind === "github" ? p.github : null,
@@ -64,10 +66,13 @@ export function projectToRow(p: Project): ProjectRow {
 }
 
 export function rowToProject(r: ProjectRow): Project {
-  const { github, factoryLimits, remoteWarning, executionBackend, ...rest } = r;
+  const { github, factoryLimits, remoteWarning, executionBackend, executionMachine, ...rest } = r;
   return Project.parse({
     ...rest,
-    execution: { backend: executionBackend },
+    execution: {
+      backend: executionBackend,
+      ...(executionMachine ? { machine: executionMachine } : {}),
+    },
     factoryLimits: factoryLimits ?? undefined,
     ...(r.kind === "github" ? { github } : {}),
     ...(remoteWarning ? { remoteWarning } : {}),
@@ -86,11 +91,19 @@ export function sessionToRow(s: Session): Omit<SessionRow, "usage" | "startMeta"
     forkedFrom: s.forkedFrom ?? null,
     startError: s.startError ?? null,
     mcpServers: s.mcpServers ?? null,
+    placementNote: s.placementNote ?? null,
+    stoppedBy: s.stoppedBy ?? null,
+    ownerMemberId: s.ownerMemberId ?? null,
   };
 }
 
 export function rowToSession(r: SessionRow): Session {
-  return Session.parse(r);
+  const { stoppedBy, ownerMemberId, ...rest } = r;
+  return Session.parse({
+    ...rest,
+    ...(stoppedBy ? { stoppedBy } : {}),
+    ...(ownerMemberId ? { ownerMemberId } : {}),
+  });
 }
 
 export function inboxToRow(i: InboxItem): InboxRow {

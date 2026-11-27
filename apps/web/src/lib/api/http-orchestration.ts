@@ -15,6 +15,7 @@ import {
   ResolveConflictResponse,
   RoleMessageResponse,
   RoleSessionResponse,
+  RunsOnResponse,
   Session,
   SessionGithubResponse,
   StartFreshRoleResponse,
@@ -45,6 +46,11 @@ export function httpOrchestrationApi(http: Fetcher): OrchestrationApi {
     startFresh: (role, projectId, sessionId) =>
       post(`${rolePath(role, projectId)}/start-fresh`, { sessionId }, (v) =>
         StartFreshRoleResponse.parse(v),
+      ),
+    runsOn: () => get("/orchestration/orchestrator/runs-on", (v) => RunsOnResponse.parse(v)),
+    setRunsOn: (runsOn) =>
+      http.call("PUT", "/orchestration/orchestrator/runs-on", { runsOn }, (v) =>
+        RunsOnResponse.parse(v),
       ),
     projectStatus: (id) =>
       get(`/orchestration/projects/${enc(id)}/status`, (v) => ProjectStatus.parse(v)),

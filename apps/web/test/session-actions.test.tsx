@@ -423,6 +423,7 @@ describe("session row menu", () => {
     canStop: false,
     stop: vi.fn(),
     archived: false,
+    canChange: true,
     archive: vi.fn(),
     unarchive: vi.fn(),
     canFork: false,
@@ -468,6 +469,15 @@ describe("session row menu", () => {
     expect(actions.downloadMarkdown).toHaveBeenCalled();
     expect(action(entries, "Copy as Markdown")?.hint).toBe("Secrets redacted");
     expect(action(entries, "Download as Markdown")?.hint).toBe("Secrets redacted");
+  });
+
+  it("leaves out Rename, Stop and Archive for someone who may only watch", () => {
+    expect(labels(sessionMenuEntries(fake({ canChange: false }), vi.fn()))).toEqual([
+      "Open",
+      "Copy link",
+      "Copy as Markdown",
+      "Download as Markdown",
+    ]);
   });
 
   it("offers Unarchive for archived sessions and keeps focus for Rename", () => {

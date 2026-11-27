@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Notice, NoticeTarget } from "@codeden/contracts";
 import { badRequest, conflict } from "../errors";
 import type { NoticeStore } from "./notices";
+import { wakeKey } from "./role-keys";
 import type { WakeScheduler } from "./wake-scheduler";
 
 /** Who a wake-up belongs to: the orchestrator, or the PM of a project. */
@@ -11,6 +12,8 @@ export interface WakeupOwner {
   projectId: string | null;
   /** The role session that scheduled it. */
   sessionId: string | null;
+  /** An orchestrator's person (a person key, `personKey`); null: the first owner, or a PM. */
+  person?: string | null;
 }
 
 export interface RemindersDeps {
@@ -27,8 +30,8 @@ export const MAX_PENDING_WAKEUPS = 20;
 /** Longest timer wait, so clock changes and sleep are noticed. */
 const MAX_TIMER_MS = 60_000;
 
-const keyOf = (n: Pick<Notice, "target" | "projectId">) =>
-  n.target === "orchestrator" ? "orchestrator" : `pm:${n.projectId ?? ""}`;
+const keyOf = (n: Pick<Notice, "target" | "projectId" | "memberId">) =>
+  wakeKey(n.target, n.projectId, n.memberId);
 
 /**
  * Wake-ups the orchestrator and PMs schedule for themselves (`schedule_wakeup`, §8.2), so they
@@ -67,7 +70,7 @@ export class Reminders {
     if (delay > MAX_DELAY_MS) {
       throw badRequest("A wake-up can be at most 7 days ahead", "wakeup_too_late");
     }
-    if (this.pending(owner.target, owner.projectId).length >= MAX_PENDING_WAKEUPS) {
+    if (this.pending(owner.target, owner.projectId, owner.person).length >= MAX_PENDING_WAKEUPS) {
       throw conflict(
         `You already have ${MAX_PENDING_WAKEUPS} wake-ups scheduled; cancel one first`,
         "too_many_wakeups",
@@ -83,6 +86,7 @@ export class Reminders {
       wake: true,
       notBefore: at.toISOString(),
       data: { note, requestedBy: owner.sessionId },
+      ...(owner.person ? { memberId: owner.person } : {}),
     });
     if (!notice) throw conflict("That wake-up already exists", "wakeup_exists");
     this.tick();
@@ -90,13 +94,13 @@ export class Reminders {
   }
 
   /** An owner's wake-ups still to come (or due and not yet delivered), soonest first. */
-  pending(target: NoticeTarget, projectId: string | null): Notice[] {
-    return this.deps.notices.scheduled(target, projectId);
+  pending(target: NoticeTarget, projectId: string | null, person?: string | null): Notice[] {
+    return this.deps.notices.scheduled(target, projectId, person ?? null);
   }
 
   /** Cancel one of an owner's pending wake-ups; false when it has none with that id. */
-  cancel(target: NoticeTarget, projectId: string | null, id: string): boolean {
-    if (!this.pending(target, projectId).some((n) => n.id === id)) return false;
+  cancel(target: NoticeTarget, projectId: string | null, id: string, person?: string | null) {
+    if (!this.pending(target, projectId, person).some((n) => n.id === id)) return false;
     // Settled without a wake: it never reaches the owner.
     this.deps.notices.markDelivered([id]);
     return true;

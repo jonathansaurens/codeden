@@ -16,6 +16,7 @@ export {
   openExecTransport,
   spawnLinkProcess,
 } from "./runner/transport-exec";
+export { findOrStartRunner } from "./runner/transport-loopback";
 export { type AppType, type RunningServer, type StartServerOptions, startServer } from "./server";
 export { FILE_RESET_NOTICES, fileResetMessage } from "./services/file-reset-notice";
 export { checkSetup } from "./services/setup/check-setup";

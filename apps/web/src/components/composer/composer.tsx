@@ -1,10 +1,11 @@
 import type { Session, UserInputInit } from "@codeden/contracts";
 import { useMutation } from "@tanstack/react-query";
-import { Archive, ArrowUp, ListPlus, Square, Zap } from "lucide-react";
+import { Archive, ArrowUp, Eye, ListPlus, Square, Zap } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { type SendMode, useClient } from "@/lib/api";
+import { useCan } from "@/lib/members";
 import { useProjectArchived, useSnapshotData } from "@/lib/queries";
 import { sendToSession } from "@/lib/send-to-session";
 import { matchesCombo, shortcut } from "@/lib/shortcuts";
@@ -240,6 +241,23 @@ export function SessionComposer({
     },
   });
   const stop = useMutation({ mutationFn: () => client.interrupt(session.id) });
+  // Viewers watch (§B.3): the server would refuse their messages, so there's no composer.
+  const mayAct = useCan("operator", session.projectId);
+
+  if (!mayAct) {
+    return (
+      <div className="mx-auto w-full max-w-[46rem] px-3 pb-3 sm:px-6 sm:pb-5">
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-2xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+          data-testid="viewer-composer"
+        >
+          <Eye className="size-4 shrink-0" />
+          <span>You can watch this session. Sending messages needs the Operator role.</span>
+        </div>
+      </div>
+    );
+  }
 
   // The server refuses input to an archived project's sessions: say so instead of a composer.
   if (archived) {

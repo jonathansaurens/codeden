@@ -1,5 +1,6 @@
 import { AutonomyLevel, type Project, ProviderId } from "@codeden/contracts";
 import { z } from "zod";
+import { callerCanSee, inputProject } from "../../authority";
 import { defineTool, ToolError } from "../../define";
 import { projectFor } from "../shared/helpers";
 import { assertProviderLoaded, describeProviderParam } from "../shared/provider-choices";
@@ -37,9 +38,15 @@ export const listProjects = defineTool({
   scope: "global",
   alwaysLoad: true,
   input: z.object({}),
-  handler: async (_input, { services }) => ({
-    projects: services.projects.list().map(compactProject),
-  }),
+  handler: async (_input, ctx) => {
+    const visible = callerCanSee(ctx.services, ctx);
+    return {
+      projects: ctx.services.projects
+        .list()
+        .filter((p) => visible(p.id))
+        .map(compactProject),
+    };
+  },
 });
 
 /** `create_project` (§8.3): add a local folder or clone a GitHub repo. */
@@ -49,6 +56,7 @@ export const createProject = defineTool({
     "Add a project: either an existing local folder (`path`) or a git URL / owner/repo to clone (`cloneUrl`). Only do this when the user asked for it.",
   roles: ["orchestrator"],
   scope: "global",
+  authority: { need: "owner", action: "add projects", on: "server" },
   describeInput: describeDefaultProvider,
   input: z
     .object({
@@ -83,6 +91,7 @@ export const updateProject = defineTool({
     "Change a project's name, default provider, default autonomy level, timezone, default branch, or whether its agent sessions run with CI=true. Pass null to clear an override. The autonomy level (read_only, supervised, auto, full: which actions an agent asks about) is what the project's new sessions start with: sessions that exist keep theirs, which only the user changes (each session's Permissions picker, or Apply to open sessions in the project's Settings tab). It is not the project's autonomy mode (who finds work and who merges), which this tool doesn't change.",
   roles: ["orchestrator"],
   scope: "global",
+  authority: { need: "owner", action: "change projects", on: inputProject },
   describeInput: describeDefaultProvider,
   input: z.object({
     projectId: z.string().min(1),

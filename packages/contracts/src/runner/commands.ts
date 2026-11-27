@@ -9,6 +9,7 @@ import { CHECK_OUTPUT_LIMIT } from "../checks";
 import { AutonomyLevel, Id, ProviderId, ReasoningEffort } from "../common";
 import { UnpushedWork } from "../execution";
 import { UserInput } from "../input";
+import { HostResources } from "../machines";
 import { CHECK_MAX_TIMEOUT_SEC, ProjectConfigFile } from "../project-config";
 import {
   ProjectModels,
@@ -72,6 +73,12 @@ export const RunnerCommand = z.discriminatedUnion("name", [
   }),
   /** Exit the runner process after closing sessions and terminals. */
   z.object({ name: z.literal("runner.shutdown") }),
+  /**
+   * The machine's free capacity for automatic placement (`HostResources`,
+   * `docs/machines-teams-and-agents.md` §A.5): its CPUs and how busy they were over about a
+   * second, and its total and available memory. Takes about a second to answer.
+   */
+  z.object({ name: z.literal("host.resources") }),
   /**
    * Detect installed providers (all when `providerId` is omitted). Also refreshes their model
    * lists: in the background, or before answering when `waitForModels` is set.
@@ -140,7 +147,12 @@ export const RunnerCommand = z.discriminatedUnion("name", [
       sessionId: Id,
       /** The project's folder on the runner's machine; required except for `clone`. */
       repoPath: z.string().min(1).optional(),
-      strategy: z.enum(["worktree", "repo_root", "existing", "clone"]),
+      /**
+       * `folder`: a folder of the runner's own home (`folder`), made when missing: the working
+       * directory of a role session on a runner that doesn't share the server's disk (an
+       * orchestrator's `orchestrator/<member id>`, `docs/machines-teams-and-agents.md` §D.4).
+       */
+      strategy: z.enum(["worktree", "repo_root", "existing", "clone", "folder"]),
       /** Target directory for `worktree` / `existing`. */
       path: z.string().optional(),
       branch: z.string().optional(),
@@ -173,10 +185,50 @@ export const RunnerCommand = z.discriminatedUnion("name", [
       remoteUrl: z.string().min(1).max(2048).optional(),
       /** `clone`: a shallow clone of this many commits. */
       depth: z.int().positive().optional(),
+      /**
+       * `clone` on a runner that serves many sessions (a machine's,
+       * `docs/machines-teams-and-agents.md` §A.4): keep one clone per project in
+       * `<runnerHome>/repos/<projectSlug>`, fetched before each session, and give the session a
+       * worktree of it in `<runnerHome>/wt/<projectSlug>/<sessionShort>` instead of a clone of its
+       * own. Needs `projectSlug`. The result's `repoPath` is the project's clone.
+       */
+      perProject: z.boolean().optional(),
+      /**
+       * `clone` with `perProject`, for a PM (§D.4): the session works in the project's clone
+       * itself, read-only, instead of a worktree of it. The clone is fetched and its checked-out
+       * branch fast-forwarded to its remote copy; sent again before each of the PM's turns.
+       */
+      projectRoot: z.boolean().optional(),
+      /** `folder`: the folder, relative to the runner's home (`orchestrator/<member id>`). */
+      folder: z
+        .string()
+        .regex(/^[A-Za-z0-9_-][A-Za-z0-9._-]*(\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/)
+        .max(200)
+        .optional(),
       /** `clone` and `fetch`: the credential for that git operation only (§9.2). */
       credential: GitCredential.optional(),
     })
     .superRefine((cmd, ctx) => {
+      if (cmd.perProject && !cmd.projectSlug) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["projectSlug"],
+          message: "perProject needs projectSlug",
+        });
+      }
+      if (cmd.strategy === "folder") {
+        if (!cmd.folder) {
+          ctx.addIssue({ code: "custom", path: ["folder"], message: "folder needs folder" });
+        }
+        return;
+      }
+      if (cmd.projectRoot && !cmd.perProject) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["projectRoot"],
+          message: "projectRoot needs perProject",
+        });
+      }
       if (cmd.strategy === "clone" ? !cmd.remoteUrl : !cmd.repoPath) {
         ctx.addIssue({
           code: "custom",
@@ -415,6 +467,7 @@ export const RunnerCommandResults = {
   "runner.drain": Empty,
   "runner.configure": z.object({ mcpProxyUrl: z.string().nullable() }),
   "runner.shutdown": Empty,
+  "host.resources": HostResources,
   "provider.detect": z.object({
     statuses: z.array(ProviderStatus),
     /** Every provider after the refresh; set when the command asked for `waitForModels`. */
@@ -428,6 +481,8 @@ export const RunnerCommandResults = {
     cwd: z.string(),
     branch: z.string().nullable(),
     created: z.boolean(),
+    /** `clone` with `perProject`: the project's clone that `cwd` is a worktree of. */
+    repoPath: z.string().optional(),
     /** Parsed `.codeden/project.json`, when present and valid. */
     config: ProjectConfigFile.nullable().optional(),
     /** Setup commands that ran, in order (stops at the first failure). */

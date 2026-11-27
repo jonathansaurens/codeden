@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Bot, FolderPlus, GitPullRequest, ListChecks, ShieldAlert, Sparkles } from "lucide-react";
 import { RoleChat } from "@/components/orchestration/role-chat";
 import { ProjectTile } from "@/components/shell/sidebar/project-group";
+import { useCan } from "@/lib/members";
 import { useSnapshotData } from "@/lib/queries";
 import { useComposerStore } from "@/stores/composer";
 import { useUiStore } from "@/stores/ui";
@@ -46,6 +47,7 @@ export function SuggestionGrid({
 function ProjectsStrip() {
   const projects = useSnapshotData((s) => s.projects, []);
   const setAddProject = useUiStore((s) => s.setAddProjectOpen);
+  const isOwner = useCan("owner", null);
   return (
     <div className="relative mt-6 flex max-w-2xl flex-wrap items-center justify-center gap-1.5">
       {projects.map((p) => (
@@ -58,18 +60,22 @@ function ProjectsStrip() {
           <ProjectTile project={p} /> {p.name}
         </Link>
       ))}
-      <button
-        type="button"
-        onClick={() => setAddProject(true)}
-        className="inline-flex h-7 items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
-      >
-        <FolderPlus className="size-3.5" /> Add project
-      </button>
+      {isOwner && (
+        <button
+          type="button"
+          onClick={() => setAddProject(true)}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <FolderPlus className="size-3.5" /> Add project
+        </button>
+      )}
     </div>
   );
 }
 
 function OrchestratorEmpty({ draftKey }: { draftKey: string }) {
+  // The prompts send to the orchestrator, which Viewers can't (§B.3).
+  const mayAct = useCan("operator", null);
   return (
     <div className="relative flex flex-1 flex-col items-center justify-center px-6 py-10">
       <div
@@ -84,7 +90,7 @@ function OrchestratorEmpty({ draftKey }: { draftKey: string }) {
         Talk to the orchestrator. It knows what's running in every project, hands work to project
         managers and keeps every step visible in GitHub.
       </p>
-      <SuggestionGrid draftKey={draftKey} items={suggestions} />
+      {mayAct && <SuggestionGrid draftKey={draftKey} items={suggestions} />}
       <ProjectsStrip />
     </div>
   );

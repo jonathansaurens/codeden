@@ -48,8 +48,12 @@ describe("messages from a PM or the orchestrator record their sender", () => {
     );
     expect(input.from).toBe("pm");
     expect(input.text).toBe("Message from your project manager:\nUse **pnpm**, not npm");
-    // The user's own message records no sender.
-    expect((await userInputs(agentId))[0]).toEqual({ text: "start", attachments: [] });
+    // The user's own message records no sender, only its author: the install token's first owner.
+    expect((await userInputs(agentId))[0]).toEqual({
+      text: "start",
+      attachments: [],
+      author: { memberId: "owner", kind: "person" },
+    });
   });
 
   it("persists the opening brief of a PM's start_session as from the PM", async () => {

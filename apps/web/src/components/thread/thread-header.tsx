@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { StatusDot } from "@/components/common/status-dot";
 import { ReadOnlyBadge, RoleBadge } from "@/components/orchestration/role-badge";
+import { RunsOnMenu } from "@/components/orchestration/runs-on-menu";
 import { useStartFresh } from "@/components/orchestration/start-fresh";
 import { MobileNavButton } from "@/components/shell/mobile-nav";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,9 @@ import { hasRightPanel } from "@/lib/session-workspace";
 import { cn } from "@/lib/utils";
 import { useViewport } from "@/lib/viewport";
 import { useLayoutStore } from "@/stores/layout";
+import { ActorLabel, PresenceAvatars } from "./attribution";
+import { MachineChip } from "./machine-chip";
+import { PlacementNote } from "./placement-note";
 import { SessionGithubBadges } from "./session-github-badges";
 
 function Chip({
@@ -151,9 +155,13 @@ export function ThreadHeader({ session, running }: { session: Session; running: 
           {statusLabel[session.status]}
           {session.archivedAt && " · Archived"}
         </span>
+        <PlacementNote note={session.placementNote} />
+        {session.status === "stopped" && <ActorLabel actor={session.stoppedBy} prefix="by " />}
       </div>
+      <PresenceAvatars sessionId={session.id} />
 
       <div className="ml-1 hidden min-w-0 shrink items-center gap-1.5 overflow-hidden @[36rem]:flex">
+        <MachineChip runnerId={session.runnerId} />
         {session.branch && (
           <Chip
             className="hidden @[54rem]:inline-flex"
@@ -325,6 +333,7 @@ export function ThreadHeader({ session, running }: { session: Session; running: 
             {fresh.available && (
               <>
                 <DropdownMenuSeparator />
+                {session.role === "orchestrator" && <RunsOnMenu session={session} />}
                 <DropdownMenuItem
                   disabled={fresh.blocked !== null}
                   title={fresh.blocked ?? undefined}
@@ -340,7 +349,7 @@ export function ThreadHeader({ session, running }: { session: Session; running: 
                 </DropdownMenuItem>
               </>
             )}
-            {session.role === "agent" && (
+            {session.role === "agent" && actions.canChange && (
               <>
                 <DropdownMenuSeparator />
                 {actions.archived ? (

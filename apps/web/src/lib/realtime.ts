@@ -7,6 +7,7 @@ import {
 } from "@codeden/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 import { useConnectionStore } from "@/stores/connection";
+import { usePresenceStore } from "@/stores/presence";
 import { useTranscriptsStore } from "@/stores/transcripts";
 import type { CodeDenClient } from "./api/client";
 import { syncSessionQueries } from "./archived-sessions";
@@ -45,6 +46,12 @@ function invalidateWorkbench(queryClient: QueryClient, env: EventEnvelope): void
   if (env.type === "session.created" || env.type === "session.updated")
     void queryClient.invalidateQueries({ queryKey: ["project-status"] });
   if (GITHUB_EVENTS.has(env.type)) void queryClient.invalidateQueries({ queryKey: ["github"] });
+  // A member's roles changed (§B.3): what this device may see and do may have changed with them.
+  if (env.type.startsWith("member.")) {
+    void queryClient.invalidateQueries({ queryKey: ["members"] });
+    if (env.type !== "member.created")
+      void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
+  }
   if (env.type === "message.queued" || env.type === "message.dequeued") {
     const id =
       env.type === "message.queued" ? env.payload.message.sessionId : env.payload.sessionId;
@@ -62,7 +69,22 @@ export function startRealtime(client: CodeDenClient, queryClient: QueryClient): 
   let unsubscribe: (() => void) | undefined;
   let stopped = false;
   conn().setSocket("connecting");
-  const offState = client.onConnectionChange((state) => conn().setSocket(state));
+  let opened = false;
+  let dropped = false;
+  const offState = client.onConnectionChange((state) => {
+    // Back after a drop: the server closes a member's sockets when their roles change (§B.3),
+    // and only owners get member events, so reload what the roles decide.
+    if (state === "open") {
+      if (dropped) {
+        void queryClient.invalidateQueries({ queryKey: ["members"] });
+        void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
+      }
+      opened = true;
+      dropped = false;
+    }
+    if (state === "closed" && opened) dropped = true;
+    conn().setSocket(state);
+  });
 
   const apply = (raw: unknown) => {
     const parsed = EventEnvelopeSchema.safeParse(raw);
@@ -103,6 +125,9 @@ export function startRealtime(client: CodeDenClient, queryClient: QueryClient): 
           break;
         case "update":
           queryClient.setQueryData(updatesKey, msg.update);
+          break;
+        case "presence":
+          usePresenceStore.getState().set(msg.sessionId, msg.memberIds);
           break;
         case "events":
           for (const e of msg.events) apply(e);

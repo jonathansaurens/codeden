@@ -7,8 +7,11 @@ import { DraftOptions } from "@/components/composer/draft-options";
 import { useProjectProviders } from "@/components/composer/model-picker/use-project-models";
 import { ConflictCard } from "@/components/project/conflict-card";
 import { NewSessionHeader } from "@/components/project/new-session-header";
+import { NoMachineNotice } from "@/components/project/no-machine-notice";
 import { useStartDraft } from "@/components/project/use-start-draft";
-import { resolveDraftChoice } from "@/lib/new-session";
+import { pickableMachines, useMachines } from "@/lib/machines";
+import { useMe } from "@/lib/members";
+import { canPlaceOnMachines, machineChoices, resolveDraftChoice } from "@/lib/new-session";
 import { useProject, useProjectChecks, useSnapshot, useSnapshotData } from "@/lib/queries";
 import { newSessionDraftKey, useComposerStore } from "@/stores/composer";
 import { getNewSessionDraft, useNewSessionStore } from "@/stores/new-session";
@@ -30,6 +33,18 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
   );
   // Settings → Providers → Agent sessions: provider, model and effort.
   const agent = useSnapshotData((s) => s.settings.providers.agent, null);
+  // Machines to pick from for this session: GitHub projects that don't run in Docker only.
+  const machineList = useMachines({ enabled: canPlaceOnMachines(project) }).data?.machines;
+  // Someone else's own computer isn't theirs to pick (§D.5).
+  const meId = useMe().data?.member.id;
+  const machines = useMemo(
+    () =>
+      machineChoices(
+        project,
+        pickableMachines(machineList ?? [], meId).map((m) => m.label),
+      ),
+    [project, machineList, meId],
+  );
   const draft = useNewSessionStore((s) => getNewSessionDraft(s, projectId));
   const { setChoice, setWorkKey } = useNewSessionStore.getState();
   const resolved = useMemo(
@@ -39,8 +54,9 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
         project,
         agent,
         defaultAutonomy,
+        machines,
       }),
-    [draft.choice, providers, project, agent, defaultAutonomy],
+    [draft.choice, providers, project, agent, defaultAutonomy, machines],
   );
   const start = useStartDraft(projectId, resolved, draft.workKey);
   const checks = useProjectChecks(projectId);
@@ -73,6 +89,15 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
           Nothing is created until you send.
         </EmptyState>
       </div>
+      {start.noMachine && (
+        <div className="mx-auto w-full max-w-[46rem] px-3 pb-2 sm:px-6">
+          <NoMachineNotice
+            message={start.noMachine}
+            sending={start.sending}
+            onRunOnHome={start.runOnHome}
+          />
+        </div>
+      )}
       {start.conflict && (
         <div className="mx-auto w-full max-w-[46rem] px-3 pb-2 sm:px-6">
           <ConflictCard
@@ -97,6 +122,14 @@ export function NewSessionPage({ projectId }: { projectId: string }) {
             checks={checks}
             projectId={projectId}
             projectPath={project.path}
+            machines={machines}
+            projectSetting={
+              project.execution?.backend === "ssh"
+                ? project.execution.machine === "auto"
+                  ? "Automatic"
+                  : `On ${project.execution.machine ?? "a machine"}`
+                : "Home, the server CodeDen runs on, in a worktree"
+            }
             onChange={(choice) => setChoice(projectId, choice)}
           />
         }

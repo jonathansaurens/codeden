@@ -9,6 +9,7 @@ import {
 import type { WSContext, WSEvents } from "hono/ws";
 import type { Db } from "../db/client";
 import type { EventStore } from "../events/store";
+import type { Principal } from "../members/principal";
 import type { RunnersStatus } from "../runner/hub";
 import { type ArtifactLookup, clientEvent } from "../services/sessions/client-items";
 import { coalesceEvents } from "./coalesce";
@@ -36,9 +37,23 @@ interface Client {
   pending: RawEventEnvelope[];
   watches: Map<string, Watch>;
   timer: NodeJS.Timeout | undefined;
+  /** Who is connected (none on hubs without members). */
+  principal: Principal | undefined;
+  /** Events this client may see; undefined: all of them (§B.3). */
+  allowed: ((e: RawEventEnvelope) => boolean) | undefined;
+}
+
+/** Role checks for UI sockets (§B.3): which events and transcripts a member may see. */
+export interface HubAccess {
+  eventFilter(principal: Principal | undefined): ((e: RawEventEnvelope) => boolean) | undefined;
+  canWatch(principal: Principal | undefined, sessionId: string): boolean;
+  /** More than one member: presence is worth sending (a single-user install gets none). */
+  team(): boolean;
 }
 
 export interface WsHubOptions {
+  /** Members' visibility; without it every client sees everything. */
+  access?: HubAccess;
   /** Live updates are batched for this long (default 40ms). */
   flushMs?: number;
   /** The update status sent to each client on connect (§16). */
@@ -75,8 +90,8 @@ export class WsHub {
     this.unsubscribe = store.subscribe((events) => this.onEvents(events));
   }
 
-  /** Handlers for `upgradeWebSocket`. */
-  handlers(): WSEvents {
+  /** Handlers for `upgradeWebSocket`, for a socket opened by `principal`. */
+  handlers(principal?: Principal): WSEvents {
     let client: Client | undefined;
     return {
       onOpen: (_event, ws) => {
@@ -88,6 +103,8 @@ export class WsHub {
           pending: [],
           watches: new Map(),
           timer: undefined,
+          principal,
+          allowed: this.opts.access?.eventFilter(principal),
         };
         this.clients.add(client);
         send(ws, {
@@ -121,9 +138,11 @@ export class WsHub {
             break;
           case "watch_session":
             this.watch(client, msg.sessionId, msg.fromSeq, msg.threadIds);
+            if (client.watches.has(msg.sessionId)) this.announcePresence(msg.sessionId);
             break;
           case "unwatch_session":
             client.watches.delete(msg.sessionId);
+            this.announcePresence(msg.sessionId);
             break;
         }
       },
@@ -131,6 +150,7 @@ export class WsHub {
         if (!client) return;
         clearTimeout(client.timer);
         this.clients.delete(client);
+        for (const sessionId of client.watches.keys()) this.announcePresence(sessionId);
       },
     };
   }
@@ -185,6 +205,10 @@ export class WsHub {
   }
 
   private watch(client: Client, sessionId: string, fromSeq: number, threadIds?: string[]): void {
+    if (this.opts.access && !this.opts.access.canWatch(client.principal, sessionId)) {
+      send(client.ws, { type: "error", error: { code: "not_found", message: "No such session" } });
+      return;
+    }
     const head = this.store.headSeq();
     const watch: Watch = {
       threadIds: threadIds ? new Set(threadIds) : undefined,
@@ -207,8 +231,27 @@ export class WsHub {
     this.sendTranscript(client, sessionId, watch);
   }
 
+  /** The members watching a session now (§B.4). */
+  presence(sessionId: string): string[] {
+    const ids = new Set<string>();
+    for (const c of this.clients) {
+      if (c.principal && c.watches.has(sessionId)) ids.add(c.principal.member.id);
+    }
+    return [...ids];
+  }
+
+  /** Tell everyone watching a session who else is (sent when it changes). */
+  private announcePresence(sessionId: string): void {
+    if (!this.opts.access?.team()) return;
+    const memberIds = this.presence(sessionId);
+    for (const c of this.clients) {
+      if (c.watches.has(sessionId)) send(c.ws, { type: "presence", sessionId, memberIds });
+    }
+  }
+
   private visible(client: Client, e: RawEventEnvelope): boolean {
     if (!client.agentEvents && e.type.startsWith("agent.")) return false;
+    if (client.allowed && !client.allowed(e)) return false;
     const filter = client.sessionIds;
     return !filter || e.sessionId === null || filter.has(e.sessionId);
   }

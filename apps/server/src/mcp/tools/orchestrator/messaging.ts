@@ -1,6 +1,10 @@
-import { InboxItemKind } from "@codeden/contracts";
+import { InboxItemKind, MEMBER_ROLES, type Member } from "@codeden/contracts";
 import { z } from "zod";
+import { actingRole } from "../../../members/acting";
+import { authorizeContext } from "../../../members/sockets";
+import type { AppServices } from "../../../services/container";
 import { renderOverviewDigest } from "../../../services/orchestration/digest";
+import { type AuthorityCaller, actingForCall, callerCanSee, inputProject } from "../../authority";
 import { defineTool } from "../../define";
 import { projectFor } from "../shared/helpers";
 
@@ -13,11 +17,11 @@ export const getOverview = defineTool({
   scope: "global",
   alwaysLoad: true,
   input: z.object({}),
-  handler: async (_input, { services }) =>
+  handler: async (_input, ctx) =>
     renderOverviewDigest(
-      services.orchestration.overview(),
+      ctx.services.orchestration.overview(callerCanSee(ctx.services, ctx)),
       Date.now(),
-      services.orchestration.timezone(),
+      ctx.services.orchestration.timezone(),
     ),
 });
 
@@ -33,10 +37,13 @@ export const listInbox = defineTool({
     projectId: z.string().min(1).optional(),
     kind: InboxItemKind.optional(),
   }),
-  handler: async ({ projectId, kind }, { services }) => {
+  handler: async ({ projectId, kind }, ctx) => {
+    const { services } = ctx;
+    const visible = callerCanSee(services, ctx);
     const items = services.inbox
       .list(projectId ? { projectId } : {})
       .filter((i) => !kind || i.kind === kind)
+      .filter((i) => visible(i.projectId ?? projectOfSession(services, i.sessionId)))
       .slice(0, 50);
     return {
       open: items.length,
@@ -53,6 +60,25 @@ export const listInbox = defineTool({
   },
 });
 
+/** A listed item's project: its own, or its session's. */
+function projectOfSession(services: AppServices, sessionId: string | null): string | null {
+  return sessionId ? (services.sessionRepo.find(sessionId)?.session.projectId ?? null) : null;
+}
+
+/**
+ * The person the orchestrator's message to a PM speaks for (§D.2): the PM's turn acts with
+ * their role. Of several (people who steered the turn), the one with the least role on the
+ * project; a call no person is behind speaks for the first owner.
+ */
+function personOf(ctx: AuthorityCaller & { services: AppServices }, projectId: string): string {
+  const people = actingForCall(ctx.services, ctx) ?? [];
+  const target = { kind: "project" as const, projectId };
+  const authz = authorizeContext(ctx.services);
+  const rank = (m: Member) => MEMBER_ROLES.indexOf(actingRole([m], target, authz));
+  const lowest = [...people].sort((a, b) => rank(a) - rank(b))[0];
+  return lowest?.id ?? ctx.services.members.owner().id;
+}
+
 /** `message_pm` (§8.3): hand a PM a task or information without waiting. */
 export const messagePm = defineTool({
   name: "message_pm",
@@ -61,13 +87,19 @@ export const messagePm = defineTool({
   roles: ["orchestrator"],
   scope: "global",
   alwaysLoad: true,
+  authority: { need: "operator", action: "message a PM", on: inputProject },
   input: z.object({
     projectId: z.string().min(1),
     text: z.string().min(1).max(20_000),
   }),
-  handler: async ({ projectId, text }, { services, caller, sessionId }) => {
+  handler: async ({ projectId, text }, ctx) => {
+    const { services, caller, sessionId } = ctx;
     const project = projectFor(services, projectId);
-    const res = await services.orchestration.messagePm(projectId, text, { caller, sessionId });
+    const res = await services.orchestration.messagePm(projectId, text, {
+      caller,
+      sessionId,
+      onBehalfOf: personOf(ctx, projectId),
+    });
     if (res.status === "held") {
       return `${heldNote(project.name, res.until)} Its reply arrives as a later message.`;
     }
@@ -102,15 +134,17 @@ export const askPm = defineTool({
   roles: ["orchestrator"],
   scope: "global",
   alwaysLoad: true,
+  authority: { need: "operator", action: "message a PM", on: inputProject },
   input: z.object({
     projectId: z.string().min(1),
     question: z.string().min(1).max(20_000),
     timeoutSec: z.int().min(10).max(540).optional(),
   }),
-  handler: async ({ projectId, question, timeoutSec }, { services, caller, sessionId, signal }) => {
+  handler: async ({ projectId, question, timeoutSec }, ctx) => {
+    const { services, caller, sessionId, signal } = ctx;
     const project = projectFor(services, projectId);
     const outcome = await services.orchestration.askPm(projectId, question, {
-      origin: { caller, sessionId },
+      origin: { caller, sessionId, onBehalfOf: personOf(ctx, projectId) },
       timeoutMs: timeoutSec ? timeoutSec * 1000 : undefined,
       signal,
     });

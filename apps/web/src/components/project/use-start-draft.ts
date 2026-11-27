@@ -12,12 +12,14 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { canSendDraft, draftInput } from "@/components/composer/composer-box";
 import { type CodeDenClient, useClient } from "@/lib/api";
+import { ApiRequestError } from "@/lib/api/http";
 import {
   buildStartRequest,
   draftPurpose,
   LOCAL_CONFLICT_PREFIX,
   localConflict,
   type ResolvedDraft,
+  startOnHome,
 } from "@/lib/new-session";
 import { snapshotKey } from "@/lib/queries";
 import { getDraft, newSessionDraftKey, useComposerStore } from "@/stores/composer";
@@ -64,6 +66,13 @@ export function useStartDraft(projectId: string, resolved: ResolvedDraft, workKe
     record: ConflictRecord;
     request: StartSessionRequestInit;
   } | null>(null);
+  /**
+   * Automatic placement found no free machine (`no_machine`): the server's message, and the
+   * input of that send, which "Run on Home" sends again on Home.
+   */
+  const [noMachine, setNoMachine] = useState<{ message: string; input: UserInputInit } | null>(
+    null,
+  );
   /** The input the conflict's decision started with: the session's first message. */
   const decidedInput = useRef<UserInputInit | undefined>(undefined);
 
@@ -85,10 +94,12 @@ export function useStartDraft(projectId: string, resolved: ResolvedDraft, workKe
   };
 
   const start = useMutation({
-    mutationFn: async (input: UserInputInit) => {
+    mutationFn: async ({ input, onHome }: { input: UserInputInit; onHome?: boolean }) => {
+      setNoMachine(null);
       // Sent again while the card is up: the server closes the conflict this replaces.
       const replaced = conflict && isPersisted(conflict.record) ? conflict.record.id : undefined;
-      const request = buildStartRequest(projectId, input, resolved, workKey);
+      const drafted = buildStartRequest(projectId, input, resolved, workKey);
+      const request = onHome ? startOnHome(drafted) : drafted;
       const result = await client.startSession(
         replaced ? { ...request, replacesConflict: replaced } : request,
       );
@@ -125,7 +136,14 @@ export function useStartDraft(projectId: string, resolved: ResolvedDraft, workKe
           return;
       }
     },
-    onError: (e) => toast.error("Couldn't start the session", { description: e.message }),
+    onError: (e, { input }) => {
+      // Shown in the form with "Run on Home", not as a toast.
+      if (e instanceof ApiRequestError && e.code === "no_machine") {
+        setNoMachine({ message: e.message, input });
+        return;
+      }
+      toast.error("Couldn't start the session", { description: e.message });
+    },
   });
 
   /**
@@ -190,9 +208,15 @@ export function useStartDraft(projectId: string, resolved: ResolvedDraft, workKe
 
   return {
     send: (input: UserInputInit) => {
-      if (!start.isPending) start.mutate(input);
+      if (!start.isPending) start.mutate({ input });
     },
     sending: start.isPending,
+    /** The server's message when automatic placement found no free machine; else null. */
+    noMachine: noMachine?.message ?? null,
+    /** Send the draft that found no machine again, on Home. */
+    runOnHome: () => {
+      if (noMachine && !start.isPending) start.mutate({ input: noMachine.input, onHome: true });
+    },
     conflict: shown,
     startBlocked: !canStart
       ? "The composer is empty: write the task to start it, or skip"

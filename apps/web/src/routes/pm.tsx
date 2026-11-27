@@ -1,5 +1,6 @@
 import { Bot, CircleDot, GitPullRequest, ListTodo, Workflow } from "lucide-react";
 import { RoleChat } from "@/components/orchestration/role-chat";
+import { useCan } from "@/lib/members";
 import { useProject } from "@/lib/queries";
 import { SuggestionGrid } from "./home";
 
@@ -13,6 +14,8 @@ const suggestions = [
 /** A project's PM chat (§8.1): triages, plans, starts and steers agent sessions. */
 export function PmPage({ projectId }: { projectId: string }) {
   const project = useProject(projectId);
+  // The prompts send to the PM, which Viewers can't (§B.3).
+  const mayAct = useCan("operator", projectId);
   if (!project) return null;
   return (
     <RoleChat
@@ -28,7 +31,7 @@ export function PmPage({ projectId }: { projectId: string }) {
             The project manager sees everything running in {project.name}, triages issues and starts
             agent sessions. It works read-only; agents make the changes.
           </p>
-          <SuggestionGrid draftKey={draftKey} items={suggestions} />
+          {mayAct && <SuggestionGrid draftKey={draftKey} items={suggestions} />}
         </div>
       )}
     />

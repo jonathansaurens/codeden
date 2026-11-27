@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  Actor,
   AutonomyLevel,
   CompactSessionResponse,
   ForkSessionRequest,
@@ -24,8 +25,17 @@ import type {
   UserInput,
   WorkspaceRequest,
 } from "@codeden/contracts";
+import type { AutoPlacement } from "../../execution/placement/auto";
 import type { SandboxService } from "../../execution/sandboxes";
 import type { McpTokenStore } from "../../mcp/tokens";
+import {
+  answeredBy,
+  answeredByOf,
+  asSent,
+  assertMayAnswerApproval,
+  assertMayChooseAutonomy,
+} from "../../members/attribution";
+import { currentActor } from "../../members/principal";
 import type { SettingsStore } from "../../settings-store";
 import type { ArtifactService } from "../artifacts";
 import { badRequest, conflict, ServiceError } from "../errors";
@@ -53,6 +63,13 @@ import type { LaunchFork, SessionLauncher } from "./launcher";
 import type { Outbox } from "./outbox";
 import { isTransientRunnerError, isTurnRunningError, OutboxHolds } from "./outbox-holds";
 import { planModeUnsupported, readOnlyUnsupported } from "./permissions";
+import {
+  assertProviderOnMachine,
+  type MachinePlacement,
+  type MachinePlacer,
+  machineFor,
+  placeAutomatically,
+} from "./placement";
 import { autoOrder } from "./provider-order";
 import type { Answerer, QuestionBroker } from "./questions";
 import { applyPendingConfig, updateSession } from "./reconfigure";
@@ -61,6 +78,8 @@ import { planReview } from "./review";
 import { startWorkspace } from "./start-workspace";
 
 export interface SessionServiceDeps extends RunnerDeps {
+  /** A member's display name, for "already answered by …" (§B.4). */
+  memberName?: (memberId: string) => string;
   repo: SessionRepo;
   projects: ProjectService;
   inbox: InboxService;
@@ -77,6 +96,10 @@ export interface SessionServiceDeps extends RunnerDeps {
   outboxRetryMs?: number;
   /** Refuses starts a project's sandboxes can't host (`docs/remote-runners.md` §8). */
   sandboxes?: Pick<SandboxService, "assertStartable" | "wants">;
+  /** Machines a session can be placed on by name (`docs/machines-teams-and-agents.md` §A.5). */
+  machines?: MachinePlacer;
+  /** Automatic placement on Home or a machine (§A.5). */
+  autoPlacement?: Pick<AutoPlacement, "choose">;
   /**
    * Brings a project's record up to date with its folder (`isGitRepo`) when the start-up check
    * hasn't reached it yet (#425). Without it, starts trust the record as it is.
@@ -109,6 +132,9 @@ export class SessionService {
   readonly launching = new Map<string, Promise<void>>();
   /** Rewrites a turn's input at send time (the orchestration status digest, §8.4). */
   private inputDecorator: InputDecorator | undefined;
+  /** Told about each message that steered a running turn (who a role's turn acts for, §D.2). */
+  private steerObserver: ((session: Session, input: UserInput) => void) | undefined;
+  private startFailureObserver: ((session: Session, error: unknown) => void) | undefined;
   private checkRuns: CheckRuns | undefined;
   private readonly holds: OutboxHolds;
   /**
@@ -134,6 +160,16 @@ export class SessionService {
     this.inputDecorator = fn;
   }
 
+  /** Follow the messages that steer running turns (`input.from` says who sent each). */
+  setSteerObserver(fn: (session: Session, input: UserInput) => void): void {
+    this.steerObserver = fn;
+  }
+
+  /** Follow sessions whose background start failed (the session is marked failed already). */
+  setStartFailureObserver(fn: (session: Session, error: unknown) => void): void {
+    this.startFailureObserver = fn;
+  }
+
   /** The checks loop (§9 Project checks): Stop and new messages end a check run. */
   setCheckRuns(runs: CheckRuns): void {
     this.checkRuns = runs;
@@ -144,6 +180,7 @@ export class SessionService {
    * or title.
    */
   update(id: string, req: UpdateSessionRequest): Promise<Session> {
+    assertMayChooseAutonomy(req.autonomy);
     if (req.untilChecksPass !== undefined || req.checkRounds !== undefined) {
       const session = this.deps.repo.get(id);
       if (session.role !== "agent" || !session.checks?.commands.length) {
@@ -197,7 +234,26 @@ export class SessionService {
     };
   }
 
-  async start(req: StartSessionRequest): Promise<StartSessionResponse> {
+  /**
+   * Start a session. `opts.ownerMemberId` is the person an orchestrator session belongs to
+   * (§D.1), and `opts.machine` the machine a role session runs on (§D.4), both set by
+   * `RoleSessions` only; absent: the first owner's, and the server.
+   */
+  async start(
+    req: StartSessionRequest,
+    opts: { ownerMemberId?: string; machine?: MachinePlacement } = {},
+  ): Promise<StartSessionResponse> {
+    // Purpose and work key come from the text as written: a connected agent's message gets an
+    // introduction line below, which would give every session it starts the same key.
+    assertMayChooseAutonomy(req.autonomy);
+    const ownInput = req.input;
+    // The opening message is the user's when a person (or connected agent) started it (§B.4).
+    if (req.input) {
+      req = {
+        ...req,
+        input: asSent(req.input, req.startedBy.kind === "user" ? "user" : "codeden").input,
+      };
+    }
     const { repo, projects } = this.deps;
     // The workspace follows `isGitRepo`: read it once the folder has been checked since start.
     if (req.projectId) await this.deps.projectChecks?.current(req.projectId);
@@ -208,7 +264,7 @@ export class SessionService {
     }
     // Refused before the conflict check: a worktree that can't be made is never queued either.
     const workspace = startWorkspace(req.workspace, project);
-    const purpose = derivePurpose(req.purpose, req.input?.text);
+    const purpose = derivePurpose(req.purpose, ownInput?.text);
     const workKey = deriveWorkKey({
       workKey: req.workKey,
       issueNumber: req.issue?.number,
@@ -230,8 +286,9 @@ export class SessionService {
           if (target.projectId !== req.projectId) {
             throw badRequest("Can only join a session in the same project", "join_mismatch");
           }
-          if (req.input) {
-            await this.send(target.id, { input: req.input, whenBusy: "queue" }, req.startedBy.kind);
+          // `send` introduces a connected agent's message itself.
+          if (ownInput) {
+            await this.send(target.id, { input: ownInput, whenBusy: "queue" }, req.startedBy.kind);
           }
           return { status: "joined", sessionId: target.id };
         }
@@ -245,7 +302,35 @@ export class SessionService {
     }
 
     const queued = queuedBehind.length > 0;
-    const session = this.buildSession(req, project, { purpose, workKey, scope, queued });
+    const target =
+      req.role !== "agent" && opts.machine
+        ? opts.machine
+        : machineFor(this.deps.machines, req, project);
+    const machine = target === "auto" ? null : target;
+    const session = this.buildSession(
+      req,
+      project,
+      { purpose, workKey, scope, queued },
+      machine?.port,
+    );
+    if (opts.ownerMemberId && req.role === "orchestrator") {
+      session.ownerMemberId = opts.ownerMemberId;
+    }
+    if (machine && this.deps.machines) {
+      await assertProviderOnMachine(this.deps.machines, machine, session.provider);
+      // Routed to the machine before the workspace is made: it clones there (§A.4).
+      session.runnerId = machine.record.runnerId;
+    }
+    if (target === "auto" && project) {
+      const placed = await placeAutomatically(
+        this.deps.autoPlacement,
+        project,
+        session.provider,
+        req.startedBy,
+      );
+      session.runnerId = placed.runnerId;
+      if (placed.note) session.placementNote = placed.note;
+    }
     const meta: StoredStartMeta = {
       workspaceMode: workspace.mode,
       workspaceFallback: null,
@@ -333,11 +418,21 @@ export class SessionService {
   }
 
   /** Send now, steer or queue (`whenBusy`); `from` labels the message if it is queued. */
+  /**
+   * Send now, steer or queue (`whenBusy`); `from` labels the message if it is queued. With
+   * `opts.holdWhenUnavailable`, a message the session's runner can't take now waits in the queue
+   * for it, as CodeDen's own messages do, also when it is the user's (a role whose device and the
+   * server are both away, §D.4).
+   */
   async send(
     id: string,
     req: SendMessageRequest,
     from: QueueSender = "user",
+    opts: { holdWhenUnavailable?: boolean } = {},
   ): Promise<SendMessageResponse> {
+    const sent = asSent(req.input, from);
+    req = { ...req, input: sent.input };
+    from = sent.from;
     const session = this.deps.repo.get(id);
     assertProjectActive(this.deps.projects, session);
     // A newer session holds the role: this one stays archived (§8.1).
@@ -373,7 +468,8 @@ export class SessionService {
       }
       // CodeDen's own roles never lose a message to a runner restart: it waits in the queue.
       // The user sees the error instead; a wake (`reject`) is retried by its scheduler.
-      if (from === "user" || req.whenBusy === "reject" || !isTransientRunnerError(error)) {
+      const mayHold = from !== "user" || opts.holdWhenUnavailable === true;
+      if (!mayHold || req.whenBusy === "reject" || !isTransientRunnerError(error)) {
         throw error;
       }
       this.holds.hold(id, true);
@@ -384,6 +480,7 @@ export class SessionService {
   }
 
   async steer(id: string, raw: UserInput): Promise<void> {
+    raw = asSent(raw, raw.from ?? "user").input;
     const session = this.deps.repo.get(id);
     assertProjectActive(this.deps.projects, session);
     if (!BUSY.has(session.status)) throw conflict("No turn is running", "no_turn");
@@ -397,6 +494,7 @@ export class SessionService {
       .catch((e) => {
         throw toServiceError(e);
       });
+    this.steerObserver?.(session, raw);
   }
 
   async interrupt(id: string): Promise<void> {
@@ -443,8 +541,51 @@ export class SessionService {
   /** Answer a question or approval; `by` is who answered a question (the user or the PM). */
   async respond(id: string, req: RespondRequest, by: Answerer = "user"): Promise<void> {
     this.deps.repo.get(id);
+    // What the pending request is decides who may answer it, not the response's kind: an answer
+    // or a cancel sent to an approval would decide it as much as a denial does.
+    const answered = this.deps.inbox.findForRequest(id, req.requestId);
+    const asks =
+      this.deps.repo.requestKind(id, req.requestId) ??
+      (answered?.kind === "approval" || answered?.kind === "question" ? answered.kind : undefined);
+    if (asks === "approval" && req.response.kind !== "approval") {
+      throw badRequest("This request is an approval: answer it with a decision.", "wrong_response");
+    }
+    if (asks === "question" && req.response.kind === "approval") {
+      throw badRequest("This request is a question: answer it with answers.", "wrong_response");
+    }
+    if (asks === "approval" || req.response.kind === "approval") assertMayAnswerApproval();
+    // Two people answering at once (§B.4): the first answer wins, the second hears who gave it.
+    const key = `${id}\u0000${req.requestId}`;
+    if (answered && answered.status !== "open") throw this.alreadyAnswered(answered.resolution);
+    const claimed = this.answering.get(key);
+    if (claimed !== undefined) throw this.alreadyAnswered({ answeredBy: claimed });
+    this.answering.set(key, currentActor() ?? null);
+    try {
+      await this.answer(id, req, by);
+    } finally {
+      this.answering.delete(key);
+    }
+  }
+
+  /** In-flight answers by request, and who gave each (null: CodeDen or a PM). */
+  private readonly answering = new Map<string, Actor | null>();
+
+  private alreadyAnswered(resolution: unknown) {
+    const actor = answeredByOf(resolution);
+    const name = actor ? (this.deps.memberName?.(actor.memberId) ?? "someone") : null;
+    return conflict(
+      name ? `Already answered by ${name}.` : "This was already answered.",
+      "already_answered",
+    );
+  }
+
+  private async answer(id: string, req: RespondRequest, by: Answerer): Promise<void> {
     // Questions asked through CodeDen's ask_user tool are answered here, not by the provider.
-    if (await this.deps.questions.respond(id, req.requestId, req.response, by)) return;
+    if (await this.deps.questions.respond(id, req.requestId, req.response, by)) {
+      // Its item closed with the question: it still records who answered.
+      this.deps.inbox.closeForRequest(id, req.requestId, { decidedBy: by, ...answeredBy() });
+      return;
+    }
     await this.runnerOf(id)
       .request({
         name: "session.respond",
@@ -457,10 +598,14 @@ export class SessionService {
       });
     const resolution: JsonValue =
       req.response.kind === "approval"
-        ? { decision: req.response.decision, decidedBy: req.response.decidedBy ?? "user" }
+        ? {
+            decision: req.response.decision,
+            decidedBy: req.response.decidedBy ?? "user",
+            ...answeredBy(),
+          }
         : req.response.kind === "answer"
-          ? { answers: req.response.answers, decidedBy: by }
-          : { status: "cancelled" };
+          ? { answers: req.response.answers, decidedBy: by, ...answeredBy() }
+          : { status: "cancelled", ...answeredBy() };
     this.deps.inbox.closeForRequest(id, req.requestId, resolution);
   }
 
@@ -486,8 +631,16 @@ export class SessionService {
     // keeps: a failed session isn't revoked by the lifecycle. Resuming mints a new token.
     this.deps.tokens.revokeSession(id);
     this.deps.inbox.dismissRequestsForSession(id, "session stopped");
+    const stoppedBy = currentActor();
     return this.deps.repo.update(id, (s) =>
-      FINISHED.has(s.status) ? s : { ...s, status: "stopped", endedAt: new Date().toISOString() },
+      FINISHED.has(s.status)
+        ? s
+        : {
+            ...s,
+            status: "stopped",
+            endedAt: new Date().toISOString(),
+            ...(stoppedBy ? { stoppedBy } : {}),
+          },
     );
   }
 
@@ -667,6 +820,8 @@ export class SessionService {
       archivedAt: s.role === "agent" ? null : (s.archivedAt ?? null),
     }));
     try {
+      // A PM on a machine reads the project's clone there: fetched before each turn (§D.4).
+      if (session.role === "pm") await this.deps.launcher.refreshRoleClone?.(session);
       // Cleanup removed the worktree (§9), or a container session's start failed and took its
       // container with it: make it again, then resume through the provider.
       if (session.worktreeRemovedAt || this.needsSandbox(session)) {
@@ -733,6 +888,10 @@ export class SessionService {
     const prepared = input ? this.forRunner(session, input) : undefined;
     const promise = this.deps.launcher
       .launch(id, { input: prepared, workspace, ...(fork ? { fork } : {}) })
+      .then((failed) => {
+        const after = failed && this.deps.repo.find(id)?.session;
+        if (failed && after) this.startFailureObserver?.(after, failed.error);
+      })
       .finally(() => this.launching.delete(id));
     this.launching.set(id, promise);
   }
@@ -759,9 +918,13 @@ export class SessionService {
     return runner.providers().find((p) => p.id === id);
   }
 
-  private resolveProvider(req: StartSessionRequest, projectDefault: string | null): string {
-    const available = this.deps.runner.providers().map((p) => p.id);
-    const connected = this.deps.runner.isConnected();
+  private resolveProvider(
+    req: StartSessionRequest,
+    projectDefault: string | null,
+    runner: RunnerPort = this.deps.runner,
+  ): string {
+    const available = runner.providers().map((p) => p.id);
+    const connected = runner.isConnected();
     if (req.provider && req.provider !== "auto") {
       if (connected && !available.includes(req.provider)) {
         throw badRequest(
@@ -771,7 +934,7 @@ export class SessionService {
       }
       return req.provider;
     }
-    const configured = this.configuredProvider(req.role, projectDefault);
+    const configured = this.configuredProvider(req.role, projectDefault, runner);
     if (configured) return configured;
     return autoOrder(available)[0] ?? "claude";
   }
@@ -781,9 +944,13 @@ export class SessionService {
    * role's (`settings.providers.<role>`). Null when both leave it to Auto, or name a provider
    * the connected runner doesn't have.
    */
-  configuredProvider(role: Session["role"], projectDefault: string | null): string | null {
-    const available = this.deps.runner.providers().map((p) => p.id);
-    const connected = this.deps.runner.isConnected();
+  configuredProvider(
+    role: Session["role"],
+    projectDefault: string | null,
+    runner: RunnerPort = this.deps.runner,
+  ): string | null {
+    const available = runner.providers().map((p) => p.id);
+    const connected = runner.isConnected();
     const roleDefault = this.deps.settings.get().providers[role].provider;
     for (const choice of [projectDefault, roleDefault === "auto" ? null : roleDefault]) {
       if (choice && (!connected || available.includes(choice))) return choice;
@@ -795,18 +962,21 @@ export class SessionService {
     req: StartSessionRequest,
     project: ReturnType<ProjectService["get"]> | null,
     work: { purpose: string; workKey: string; scope: Session["scope"]; queued: boolean },
+    /** The machine's runner when the session is placed on one: its providers count. */
+    machine?: RunnerPort,
   ): Session {
     const settings = this.deps.settings.get();
     const now = new Date().toISOString();
-    const provider = this.resolveProvider(req, project ? projectDefaultProvider(project) : null);
-    const defaults = roleModelDefaults(
-      settings.providers[req.role],
-      provider,
-      this.provider(provider),
+    const provider = this.resolveProvider(
+      req,
+      project ? projectDefaultProvider(project) : null,
+      machine,
     );
+    const info = (machine ?? this.deps.runner).providers().find((p) => p.id === provider);
+    const defaults = roleModelDefaults(settings.providers[req.role], provider, info);
     const autonomy = req.autonomy ?? project?.autonomy ?? settings.autonomy.default;
     // A `docker` project's sessions run in containers, which no provider credentials reach yet.
-    this.deps.sandboxes?.assertStartable(req.role, project, this.provider(provider));
+    this.deps.sandboxes?.assertStartable(req.role, project, info);
     this.assertReadOnlySupported(req.role, provider, autonomy);
     // Either value is refused where plan mode doesn't exist, as for PATCH.
     if (req.planMode !== undefined) this.assertPlanModeSupported(req.role, provider);

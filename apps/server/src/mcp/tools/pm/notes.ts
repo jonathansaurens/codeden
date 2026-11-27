@@ -20,6 +20,7 @@ export const updateProjectNotes = defineTool({
   name: "update_project_notes",
   description: `Update your notes for this project (${NOTES_PATH}). mode 'append' (default) adds a section; 'replace' rewrites them. Keep them short and current.`,
   roles: ["pm"],
+  authority: { need: "operator", action: "change the project notes" },
   scope: "project",
   input: z.object({
     content: z.string().min(1).max(100_000),

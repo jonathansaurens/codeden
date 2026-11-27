@@ -186,7 +186,7 @@ A **`RunnerTransport`** on the server replaces the hard-wired `ws` client: `send
 | Transport | Who connects | Used by | Listener needed |
 |---|---|---|---|
 | `loopback` | Server → runner's `127.0.0.1` WebSocket (today) | `local` | Runner on loopback (as today) |
-| `exec` | Server starts `codeden runner-link` inside the sandbox through the backend; newline-delimited JSON on its stdin/stdout, spliced to the runner's loopback WebSocket with the token from the runner's own lock file | `docker`, `upstash-box`, later `sbx` and SSH | **None** |
+| `exec` | Server starts `codeden runner-link` inside the sandbox through the backend; newline-delimited JSON on its stdin/stdout, spliced to the runner's loopback WebSocket with the token from the runner's own lock file | `docker`, `ssh` (machines, built: [machines.md](machines.md)), `upstash-box`, later `sbx` | **None** |
 | `dial-out` (later) | Runner → `wss://<server>/runner/attach` with a per-runner secret | Machines the server can't exec into | A server endpoint reachable from the sandbox (§7) |
 
 **Why exec first.** It needs no new credential (the backend's own access, the Docker socket or the Upstash key, already proves the server owns the sandbox), no inbound port anywhere, and no change to the 127.0.0.1 rule. A link that drops (server restart, network blip, Upstash session loss) costs nothing: the runner keeps running and journaling, and the server opens a new link and resumes by `seq`, exactly as after a local server restart. `runner-link` writes only protocol frames to stdout and logs to stderr.
@@ -198,6 +198,7 @@ A **`RunnerTransport`** on the server replaces the hard-wired `ws` client: `send
   - `loopback` (`transport-loopback.ts`) is the old `ws` code; the client still finds or starts the runner through its lock file.
   - `exec` (`transport-exec.ts`) runs over a `LinkProcess`: `stdin`, `stdout`, `stderr`, `pid?`, `kill()` and `onExit(code)`. `spawnLinkProcess` and `execLink(command, args)` make a local child process, the shape `docker exec -i` needs. A cloud exec session can implement the same interface.
   - A runner gets the exec transport through `RunnerSpec.link`. Every reconnect opens a new link, and the client resumes by `seq` as after a server restart.
+  - `incoming` (`transport-incoming.ts`) is for a runner that links in to the server (a person's own computer running `codeden connect`, [machines-teams-and-agents.md](machines-teams-and-agents.md) §D.5): the server never dials, so every (re)connect waits for, and adopts, the next socket that computer opens to `/api/runner-connect` with its device key. A newer socket from the same computer replaces the one the server still holds. The computer's side (`apps/runner/src/link/runner-connect.ts`) splices that socket to its runner's loopback WebSocket, message for message.
   - A transport whose handshake fails (a `reject`, a refused journal id, or a link that ends before `welcome`) is closed, so failed attempts leave no sockets or processes behind.
   - `stop()` cancels an attempt at any point, including a loopback socket whose upgrade the runner never answers.
   - A runner reached through a link is not the home runner, so it is untrusted (§8): its events and streams pass the same checks over the link as over loopback.
@@ -545,6 +546,8 @@ Each phase is one pull request well under 5,000 changed lines, written as an iss
 **Size.** About 2,000–3,000 lines. **Depends on:** Phase 3.
 
 ### Phase 5: runner picker and runner health
+
+> **Partly built with machines** ([machines.md](machines.md)): Settings › Machines (state, version, platform, providers, live capacity, preference), a machine chip in the session header, an inbox item when a machine can't be reached for a session, and no native browser views on runners other than Home. The Docker picker in New session and Settings › Runners for sandboxes are still to do.
 
 **Title:** `feat(web): choose where a session runs, and see runner health`
 

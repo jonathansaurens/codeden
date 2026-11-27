@@ -14,10 +14,12 @@ import {
 import { InboxItem, InboxItemKind, InboxItemStatus } from "./entities/inbox";
 import { GitHubRepo, Project } from "./entities/project";
 import { ItemRecord, Session, SessionStatus, Thread, Turn } from "./entities/session";
-import { ProjectExecutionBackend } from "./execution";
+import { MachineTarget, ProjectExecutionBackend } from "./execution";
 import { UserInput } from "./input";
 import { FollowupsItem } from "./items";
+import { SessionPlacement } from "./machines";
 import { BrokenExecutable, ProjectModels, ProviderInfo, RuntimeResponse } from "./provider";
+import { RoleRunsOn } from "./role-placement";
 import { ConflictDecision, StartedBy, StartWorkResult, WorkKey } from "./work";
 import { SetupStep } from "./workbench";
 import { ClientSubscribe, ClientToServerMessage, ServerToClientMessage } from "./ws";
@@ -109,7 +111,15 @@ export const UpdateProjectRequest = z.object({
    * Where new agent sessions run (`Project.execution`). `docker` is refused for a project that
    * isn't on GitHub and while Docker isn't available, with the reason.
    */
-  execution: z.object({ backend: ProjectExecutionBackend }).optional(),
+  execution: z
+    .object({ backend: ProjectExecutionBackend, machine: MachineTarget.nullable().optional() })
+    .optional(),
+  /**
+   * Where the project's PM runs (`Project.pmRunsOn`, §D.4): `server` or a machine's id. Refused
+   * for a project that isn't on GitHub, a machine that doesn't exist, and someone else's own
+   * computer.
+   */
+  pmRunsOn: RoleRunsOn.optional(),
 });
 export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequest>;
 
@@ -186,6 +196,12 @@ export const StartSessionRequest = z.object({
   /** Automatic rounds for `untilChecksPass`; default `DEFAULT_CHECK_ROUNDS`. */
   checkRounds: CheckRounds.optional(),
   workspace: StartWorkspaceRequest.prefault({}),
+  /**
+   * Where this agent session runs, instead of its project's setting: `home`, a machine's label
+   * (`docs/machines-teams-and-agents.md` §A.5). Refused for a project whose sessions run in
+   * Docker, and ignored for other roles, which stay on the home runner.
+   */
+  machine: SessionPlacement.optional(),
   /** One line describing the work; defaults to the first line of the input. */
   purpose: z.string().trim().min(1).max(300).optional(),
   /** Stable identifier of the work; derived from the issue or purpose when omitted. */

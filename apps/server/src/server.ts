@@ -13,10 +13,17 @@ import { contentSecurityPolicy } from "./content-security";
 import { type Database, openDatabase } from "./db/client";
 import { EventStore } from "./events/store";
 import type { ExecutionBackend } from "./execution/backend";
+import { ComputerService } from "./execution/connected/computers";
 import { DockerBackend } from "./execution/docker/backend";
 import { SandboxService } from "./execution/sandboxes";
+import { MachineService } from "./execution/ssh/machines";
 import { writeJsonFile } from "./json-file";
 import { createMcpHandler } from "./mcp/endpoint";
+import { MemberAuth } from "./members/auth";
+import { ownsEverything } from "./members/authorize";
+import { principalOf } from "./members/principal";
+import { AgentRateLimiter } from "./members/rate-limit";
+import { canWatchSession, eventFilterFor, terminalAccess } from "./members/sockets";
 import { NetworkAccess } from "./network/access";
 import type { InterfaceMap } from "./network/addresses";
 import { HttpListener } from "./network/listener";
@@ -26,6 +33,7 @@ import { BROWSER_LOOPBACK_ONLY_PATHS, mountBrowserSockets } from "./realtime/bro
 import { WsHub } from "./realtime/hub";
 import { TerminalBridge } from "./realtime/terminals";
 import { createApi } from "./routes/api";
+import { mountRunnerConnect, RUNNER_CONNECT_PATHS } from "./routes/runner-connect";
 import { findWebDir, mountWeb } from "./routes/static";
 import type { RunnerClient } from "./runner/client";
 import { RunnerHub } from "./runner/hub";
@@ -34,6 +42,7 @@ import {
   type RunnerLaunchConfig,
   type RunnerStartTimeouts,
 } from "./runner/launcher";
+import { IncomingLinks } from "./runner/transport-incoming";
 import { loopbackOrigins, securityMiddleware } from "./security";
 import { type AppServices, createServices, type ServicesOptions } from "./services/container";
 import { type Exec, runTool } from "./services/exec";
@@ -154,6 +163,15 @@ export interface StartServerOptions {
   executionBackends?: { docker?: ExecutionBackend };
   /** How long a new sandbox's runner may take to answer (default 2 minutes). */
   sandboxConnectTimeoutMs?: number;
+  /**
+   * Machines over SSH (`docs/machines-teams-and-agents.md` Part A). `sshCommand` replaces the
+   * `ssh` on PATH (tests point it at a shim); `command` replaces the command machines run
+   * CodeDen with (default `CODEDEN_MACHINE_COMMAND`, else `npx -y codeden@<version>`); `exec`
+   * runs the add checks.
+   */
+  machines?: { sshCommand?: string; command?: string; exec?: Exec; connectTimeoutMs?: number };
+  /** Connected agents' per-token rate limit (tests make it small and never refilling). */
+  agentRateLimit?: { burst: number; perMinute: number };
   /** Network interfaces for the address list (tests). */
   networkInterfaces?: () => InterfaceMap;
   log?: (message: string) => void;
@@ -175,6 +193,11 @@ export interface RunningServer {
   runners: RunnerHub;
   /** Network access (§15.1): the switch, password, remote sessions and the listener binding. */
   network: NetworkAccess;
+  /**
+   * The HTTP app, for in-process requests (tests simulate other devices by passing the peer
+   * address as `env.incoming.socket.remoteAddress`).
+   */
+  app: Hono;
   /** Stop listening and disconnect from the runner (which keeps running). */
   close(opts?: { stopRunner?: boolean }): Promise<void>;
 }
@@ -220,6 +243,11 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     flushMs: opts.realtimeFlushMs,
     updateStatus: () => services.updates.snapshot(),
     artifacts: { artifactForPath: (path) => services.artifacts.artifactForPath(path) },
+    access: {
+      eventFilter: (principal) => eventFilterFor(services, principal),
+      canWatch: (principal, sessionId) => canWatchSession(services, principal, sessionId),
+      team: () => services.members.isTeam(),
+    },
   });
   const secrets =
     opts.secrets === "memory"
@@ -238,6 +266,19 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     connectTimeoutMs: opts.sandboxConnectTimeoutMs,
     log,
   });
+  const machines = new MachineService({
+    db: database.db,
+    hub: runners,
+    exec: opts.machines?.exec ?? exec,
+    sshCommand: opts.machines?.sshCommand,
+    command: opts.machines?.command ?? process.env.CODEDEN_MACHINE_COMMAND,
+    fake: opts.enableFakeProvider === true,
+    connectTimeoutMs: opts.machines?.connectTimeoutMs,
+    member: (id) => services.members.find(id),
+    log,
+  });
+  // People's own computers link in (§D.5): their sockets go to their machines' clients.
+  const incomingLinks = new IncomingLinks(log);
   const services = createServices({
     db: database.db,
     store,
@@ -246,6 +287,8 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     runner: runners.home(),
     runners,
     sandboxes,
+    machines,
+    computers: undefined,
     secrets,
     exec: opts.exec,
     locate: opts.locate,
@@ -268,6 +311,17 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     gitBroker: opts.gitBroker,
     log,
   });
+  const computers = new ComputerService({
+    db: database.db,
+    store,
+    hub: runners,
+    machines,
+    links: incomingLinks,
+    member: (id) => services.members.find(id),
+    fake: opts.enableFakeProvider === true,
+    log,
+  });
+  services.computers = computers;
   // Find out early whether `generate_image` can be offered to agents.
   void services.images.refresh();
   services.lifecycle.start();
@@ -306,6 +360,13 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     securityLogFile: paths.remoteAccessLog,
     log,
   });
+  const memberAuth = new MemberAuth({
+    members: services.members,
+    network,
+    rate: opts.agentRateLimit
+      ? new AgentRateLimiter(Date.now, opts.agentRateLimit.burst, opts.agentRateLimit.perMinute)
+      : undefined,
+  });
   const sessionCookie = () => `codeden_session_${port}`;
   const tokenCookie = () => `codeden_token_${port}`;
   const allowedOrigins = () => {
@@ -320,8 +381,9 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       token: opts.token,
       cookieName: tokenCookie,
       allowedOrigins,
-      // `/mcp` authenticates agents with per-session tokens instead of the install token.
-      publicPaths: new Set(["/api/health", "/mcp"]),
+      // `/mcp` authenticates agents with per-session tokens instead of the install token, and
+      // `codeden connect` its computer with a pairing code or a device key (§D.5).
+      publicPaths: new Set(["/api/health", "/mcp", ...RUNNER_CONNECT_PATHS]),
       // Agents and the desktop app only: never reachable from another device.
       loopbackOnlyPaths: new Set(["/mcp", ...BROWSER_LOOPBACK_ONLY_PATHS]),
       remote: {
@@ -332,13 +394,21 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
         sessionCookieName: sessionCookie,
         verifySession: (token) => network.store.verifySession(token),
       },
+      principals: memberAuth.hooks(),
     }),
   );
   const api = createApi({
     services,
     runnerStatus,
     startedAt,
-    network: { network, sessionCookie, tokenCookie, token: opts.token },
+    network: {
+      network,
+      sessionCookie,
+      tokenCookie,
+      token: opts.token,
+      members: { auth: memberAuth, invites: services.invites },
+    },
+    memberAuth,
     log,
     shutdown: ({ stopRunner }) => {
       opts.onShutdownStart?.();
@@ -352,12 +422,13 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       }, 50);
     },
   });
+  mountRunnerConnect(app, { computers: () => services.computers, network, log });
   app.route("/api", api);
   const mcp = createMcpHandler({ tokens: services.mcpTokens, registry: services.tools, log });
   app.all("/mcp", (c) => mcp(c.req.raw));
   app.get(
     "/ws",
-    upgradeWebSocket(() => hub.handlers()),
+    upgradeWebSocket((c) => hub.handlers(principalOf(c))),
   );
   const terminals = new TerminalBridge({
     runner: services.runner,
@@ -373,7 +444,15 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     const query = TerminalQuery.safeParse(c.req.query());
     if (!query.success)
       return c.json({ error: { code: "bad_request", message: "Invalid terminal query" } }, 400);
-    return upgradeWebSocket(() => terminals.handlers(query.data))(c, next);
+    const principal = principalOf(c);
+    const access = terminalAccess(services, principal, query.data);
+    if (access === null)
+      return c.json(
+        { error: { code: "forbidden", message: "This terminal isn't yours to open" } },
+        403,
+      );
+    const strict = principal !== undefined && !ownsEverything(principal.member);
+    return upgradeWebSocket(() => terminals.handlers(query.data, { access, strict }))(c, next);
   });
   const browserBridge = mountBrowserSockets(app, services, log);
   mountWeb(app, findWebDir(opts.webDir));
@@ -434,6 +513,8 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
 
   // Sessions in containers from before this start continue there, through new links.
   void sandboxes.reattach();
+  void machines.reattach();
+  computers.reattach();
 
   async function close(closeOpts: { stopRunner?: boolean } = {}): Promise<void> {
     closing ??= (async () => {
@@ -480,6 +561,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     runner,
     runners,
     network,
+    app,
     close,
   };
 }

@@ -214,7 +214,10 @@ export class WorktreeCleanup {
     }
     let repoPath: string;
     try {
-      repoPath = this.deps.projects.get(session.projectId).path;
+      // A machine's worktree belongs to the project's clone there (§A.4).
+      repoPath =
+        this.deps.repo.find(id)?.startMeta?.cloneRepoPath ??
+        this.deps.projects.get(session.projectId).path;
     } catch {
       return done(outcome("none"));
     }

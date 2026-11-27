@@ -25,6 +25,7 @@ import {
 } from "@codeden/contracts";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { principalOf } from "../members/principal";
 import { zipAutomations } from "../services/automations/import";
 import { exportAutomation } from "../services/automations/markdown";
 import type { AppServices } from "../services/container";
@@ -151,7 +152,12 @@ export function automationRoutes(s: AppServices) {
     })
     .post("/:id/run", jsonBody(RunAutomationRequest), async (c) =>
       // The user's "Run now": it runs at the permission level it asks for.
-      c.json(await a.run(c.req.param("id"), c.req.valid("json"), { byPerson: true })),
+      // A connected agent's run is no person's: it keeps the automation's own permission level.
+      c.json(
+        await a.run(c.req.param("id"), c.req.valid("json"), {
+          byPerson: principalOf(c)?.member.kind !== "agent",
+        }),
+      ),
     )
     .post("/:id/pause", jsonBody(AutomationProjectRequest), async (c) => {
       const { projectId } = c.req.valid("json");

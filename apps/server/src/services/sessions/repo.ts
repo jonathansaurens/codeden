@@ -69,6 +69,12 @@ export type StoredStartMeta = SessionStartMeta & {
    */
   turnFromUser?: boolean;
   /**
+   * On an orchestrator or PM session: the people whose messages are in its current turn, and
+   * the people whose orchestrators sent some of them (`TurnAuthority`), so the turn's tools act
+   * with their role after a server restart too. Absent: never recorded (an automatic turn).
+   */
+  turnPeople?: { members: string[]; orchestrators: string[] };
+  /**
    * On an orchestrator or PM session: the role's provider setting (`settings.providers.<role>
    * .provider`, `auto` included) the session was started under, or the latest value it was
    * checked against. The role moves to a fresh session only when the setting differs from it
@@ -81,6 +87,17 @@ export type StoredStartMeta = SessionStartMeta & {
    * its usage limit (`RoleFallback`): where the role goes back to, and when.
    */
   fallback?: RoleFallback | null;
+  /**
+   * On an orchestrator or PM session that runs on the server because the machine its "Runs on"
+   * names couldn't take it (`docs/machines-teams-and-agents.md` §D.4): that machine's id, where
+   * the role goes back to once it can.
+   */
+  placementFallback?: { machineId: string } | null;
+  /**
+   * On a machine (`docs/machines-teams-and-agents.md` §A.4): the project's clone there that the
+   * session's worktree belongs to, for removing and recreating the worktree.
+   */
+  cloneRepoPath?: string | null;
   /** A fork's workspace plan (§9): prepared before any start until the worktree exists. */
   forkStart?: ForkStart | null;
   /**
@@ -410,6 +427,25 @@ export class SessionRepo {
     ];
     if (events.length > 0) this.store.append(events);
     return events.length;
+  }
+
+  /** What a session's request asks for: an approval, a question, or unknown to the transcript. */
+  requestKind(sessionId: string, requestId: string): "approval" | "question" | undefined {
+    const rows = this.db
+      .select({ data: items.data })
+      .from(items)
+      .where(
+        and(
+          eq(items.sessionId, sessionId),
+          inArray(items.kind, ["approval_request", "user_question"]),
+        ),
+      )
+      .all();
+    for (const { data } of rows) {
+      if (data.kind === "approval_request" && data.requestId === requestId) return "approval";
+      if (data.kind === "user_question" && data.requestId === requestId) return "question";
+    }
+    return undefined;
   }
 
   item(sessionId: string, itemId: string): ItemRecord | undefined {

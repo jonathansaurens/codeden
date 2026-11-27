@@ -21,6 +21,8 @@ export const notices = sqliteTable(
     deliveredAt: text("delivered_at"),
     /** Not delivered before this time (a scheduled wake-up); null: at once. */
     notBefore: text("not_before"),
+    /** For an orchestrator: whose (`Notice.memberId`); null: the first owner's. */
+    memberId: text("member_id"),
   },
   (t) => [
     index("notices_target").on(t.target, t.projectId, t.deliveredAt),

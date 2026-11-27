@@ -1,4 +1,4 @@
-import { InboxItem, type Role, StartSessionResponse } from "@codeden/contracts";
+import { InboxItem, type Role, StartSessionRequest } from "@codeden/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { renderNotices } from "../src/services/orchestration/digest";
 import { type Harness, startHarness, waitUntil } from "./support/harness";
@@ -19,14 +19,16 @@ describe("answer_question", () => {
 
   /** An agent session the PM started, idle after its first turn. */
   const agent = async (startedBy: { kind: string; id?: string }, text = "hello") => {
-    const res = await h.api("POST", "/sessions", {
-      projectId: h.projectId,
-      provider: "fake",
-      purpose: `Work ${Math.random()}`,
-      startedBy,
-      input: { text },
-    });
-    const started = StartSessionResponse.parse(res.body);
+    // Work a PM started is CodeDen's to record: started through the service, not the API.
+    const started = await h.server.services.sessions.start(
+      StartSessionRequest.parse({
+        projectId: h.projectId,
+        provider: "fake",
+        purpose: `Work ${Math.random()}`,
+        startedBy,
+        input: { text },
+      }),
+    );
     if (started.status !== "started") throw new Error(`not started: ${started.status}`);
     const want = text.includes("[approval]") ? "waiting" : "idle";
     await waitUntil(async () =>

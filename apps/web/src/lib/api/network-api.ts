@@ -1,5 +1,7 @@
 import {
   AuthStatus,
+  InviteCheckResponse,
+  type JoinRequest,
   type NetworkAddress,
   NetworkStatus,
   passwordProblem,
@@ -26,9 +28,13 @@ export interface NetworkApi {
 /** Sign-in for remote devices. These calls never trigger the "signed out" screen. */
 export interface AuthApi {
   status(): Promise<AuthStatus>;
-  /** Resolves on success; rejects with a `SignInFailure` otherwise. */
-  signIn(password: string): Promise<void>;
+  /** Resolves on success; rejects with a `SignInFailure` otherwise. `name` picks the member. */
+  signIn(password: string, name?: string): Promise<void>;
   signOut(): Promise<void>;
+  /** Is an invite still good? Rejects with a `SignInFailure` (`invalid_invite`) otherwise. */
+  checkInvite(secret: string): Promise<InviteCheckResponse>;
+  /** Take an invite with a name and a passphrase; signs this device in. */
+  join(req: JoinRequest): Promise<void>;
 }
 
 /** A refused sign-in, with how long to wait when the address is throttled. */
@@ -57,6 +63,28 @@ export function httpNetworkApi(http: Fetcher): NetworkApi {
   };
 }
 
+/** POST to an auth endpoint; a refusal becomes a `SignInFailure` with the server's reason. */
+async function authPost(url: string, body: unknown): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new SignInFailure("network", "Can't reach CodeDen. Is the computer awake?", null);
+  }
+  if (res.ok) return res;
+  const parsed = SignInError.safeParse(await res.json().catch(() => null));
+  if (parsed.success) {
+    const { code, message, retryAfterSec } = parsed.data.error;
+    throw new SignInFailure(code, message, retryAfterSec);
+  }
+  throw new ApiRequestError(res.status, "http_error", `Request failed (${res.status})`);
+}
+
 /** Plain fetches: a 401 here means "wrong password", not "signed out". */
 export function httpAuthApi(origin: string): AuthApi {
   const base = `${origin}/api/auth`;
@@ -65,25 +93,13 @@ export function httpAuthApi(origin: string): AuthApi {
       const res = await fetch(`${base}/status`, { credentials: "include" });
       return AuthStatus.parse(await res.json());
     },
-    async signIn(password) {
-      let res: Response;
-      try {
-        res = await fetch(`${base}/sign-in`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ password }),
-        });
-      } catch {
-        throw new SignInFailure("network", "Can't reach CodeDen. Is the computer awake?", null);
-      }
-      if (res.ok) return;
-      const body = SignInError.safeParse(await res.json().catch(() => null));
-      if (body.success) {
-        const { code, message, retryAfterSec } = body.data.error;
-        throw new SignInFailure(code, message, retryAfterSec);
-      }
-      throw new ApiRequestError(res.status, "http_error", `Sign-in failed (${res.status})`);
+    async signIn(password, name) {
+      await authPost(`${base}/sign-in`, name ? { name, password } : { password });
+    },
+    checkInvite: async (secret) =>
+      InviteCheckResponse.parse(await (await authPost(`${base}/invite`, { secret })).json()),
+    async join(req) {
+      await authPost(`${base}/join`, req);
     },
     async signOut() {
       await fetch(`${base}/sign-out`, { method: "POST", credentials: "include" });
@@ -138,6 +154,7 @@ export function mockNetworkApi(): NetworkApi {
         lastSeenAt: new Date(now - 4 * 60_000).toISOString(),
         expiresAt: new Date(now + 87 * 86_400_000).toISOString(),
         current: false,
+        memberId: "owner",
       },
     ],
     remote: false,
@@ -179,8 +196,14 @@ export function mockNetworkApi(): NetworkApi {
 /** The mock is always this computer, signed in. */
 export function mockAuthApi(): AuthApi {
   return {
-    status: async () => ({ remote: false, signedIn: true, networkEnabled: false }),
+    status: async () => ({ remote: false, signedIn: true, networkEnabled: false, askName: false }),
     signIn: async () => {},
     signOut: async () => {},
+    checkInvite: async () => ({
+      role: "viewer",
+      expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      ownerName: "Owner",
+    }),
+    join: async () => {},
   };
 }

@@ -227,6 +227,8 @@ export const RemoteDevice = z.object({
   expiresAt: Timestamp,
   /** The device making this request. */
   current: z.boolean(),
+  /** The member signed in on it (`OWNER_MEMBER_ID` for devices from before members). */
+  memberId: z.string().default("owner"),
 });
 export type RemoteDevice = z.infer<typeof RemoteDevice>;
 
@@ -287,8 +289,14 @@ export type SetNetworkAccessRequest = z.infer<typeof SetNetworkAccessRequest>;
 export const AddTrustedOriginRequest = z.object({ url: TrustedOrigin });
 export type AddTrustedOriginRequest = z.infer<typeof AddTrustedOriginRequest>;
 
-/** `POST /api/auth/sign-in` from a remote device. */
-export const SignInRequest = z.object({ password: z.string().max(PASSWORD_MAX_LENGTH) });
+/**
+ * `POST /api/auth/sign-in` from a remote device. `name` picks the member (any case); without it
+ * the password is the first owner's, as before members existed.
+ */
+export const SignInRequest = z.object({
+  name: z.string().trim().max(60).optional(),
+  password: z.string().max(PASSWORD_MAX_LENGTH),
+});
 export type SignInRequest = z.infer<typeof SignInRequest>;
 
 /** `GET /api/auth/status`: what the sign-in page needs to know (public). */
@@ -298,13 +306,24 @@ export const AuthStatus = z.object({
   /** The caller has a valid session (remote) or install-token cookie (local). */
   signedIn: z.boolean(),
   networkEnabled: z.boolean(),
+  /** More than one person can sign in: the sign-in page asks for a name. */
+  askName: z.boolean().default(false),
 });
 export type AuthStatus = z.infer<typeof AuthStatus>;
 
 /** A failed sign-in: `retryAfterSec` is set while the address must wait or is locked out. */
 export const SignInError = z.object({
   error: z.object({
-    code: z.enum(["invalid_password", "rate_limited", "locked_out", "network_off"]),
+    code: z.enum([
+      "invalid_password",
+      "rate_limited",
+      "locked_out",
+      "network_off",
+      /** Join only: the invite is unknown, used, revoked or expired. */
+      "invalid_invite",
+      /** Join only: the passphrase breaks the rules, or the name is taken. */
+      "invalid_request",
+    ]),
     message: z.string(),
     retryAfterSec: z.int().nonnegative().nullable(),
   }),
@@ -315,6 +334,11 @@ export type SignInError = z.infer<typeof SignInError>;
 export const RemoteSessionRecord = z.object({
   id: z.string(),
   tokenHash: z.string().regex(/^[0-9a-f]{64}$/),
+  /**
+   * The member it signs in (`OWNER_MEMBER_ID`, "owner"). Sessions stored before members existed
+   * were all the owner's, so they read as the owner's and stay signed in.
+   */
+  memberId: z.string().default("owner"),
   label: z.string(),
   address: z.string().nullable(),
   addressViaProxy: z.boolean().default(false),

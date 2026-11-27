@@ -16,6 +16,7 @@ import { notices } from "../../db/schema-orchestration";
 import type { EventStore } from "../../events/store";
 import type { SessionRepo } from "../sessions/repo";
 import { clipKeepingEnd } from "./digest";
+import { personKey } from "./role-keys";
 
 /** A notice before it is stored (`deliveredAt` is set by delivery). */
 export type NoticeDraft = Notice extends infer N
@@ -67,9 +68,20 @@ function reportsToOrchestrator(session: Session): boolean {
   return session.startedBy.reportTo === "orchestrator";
 }
 
-/** A session notice, copied for the orchestrator so the result reaches whoever asked (§8.2). */
-function forOrchestrator(notice: NoticeDraft, id: string): DerivedNotice {
-  return { wake: true, notice: { ...notice, id, target: "orchestrator" } };
+/**
+ * A session notice, copied for the orchestrator so the result reaches whoever asked (§8.2):
+ * the orchestrators of the people who passed the work on (§D.3), each its own copy. Work from
+ * before that was recorded leaves the choice to `OrchestrationService.notify` (the project's
+ * Owners).
+ */
+function forOrchestrator(session: Session, notice: NoticeDraft, id: string): DerivedNotice[] {
+  const copy = { ...notice, id, target: "orchestrator" as const };
+  const people = session.startedBy.reportToMembers;
+  if (!people?.length) return [{ wake: true, notice: copy }];
+  return people.map((memberId) => {
+    const person = personKey(memberId);
+    return { wake: true, notice: { ...copy, id: person ? `${id}:${person}` : id, memberId } };
+  });
 }
 
 /** The id of an opened PR's notice: the same whether it came from the session or GitHub sync. */
@@ -130,7 +142,9 @@ export function deriveNotices(events: RawEventEnvelope[], lookup: NoticeLookup):
       out.push({ wake: wakesPm(s), notice: finished });
       // Once per `finish` call: a turn without a result is the PM's business only.
       if (reportsToOrchestrator(s) && s.result) {
-        out.push(forOrchestrator(finished, `session.finished:orchestrator:${s.id}:${s.result.at}`));
+        out.push(
+          ...forOrchestrator(s, finished, `session.finished:orchestrator:${s.id}:${s.result.at}`),
+        );
       }
     } else if (e.type === "inbox.created" || e.type === "inbox.updated") {
       const { item } = e.payload as { item: InboxItem };
@@ -174,7 +188,9 @@ export function deriveNotices(events: RawEventEnvelope[], lookup: NoticeLookup):
         };
         out.push({ wake: wakesPm(s), notice: failed });
         if (reportsToOrchestrator(s)) {
-          out.push(forOrchestrator(failed, `session.failed:orchestrator:${failureKey(item)}`));
+          out.push(
+            ...forOrchestrator(s, failed, `session.failed:orchestrator:${failureKey(item)}`),
+          );
         }
       }
     } else if (e.type === "session.updated") {
@@ -218,6 +234,10 @@ export function deriveNotices(events: RawEventEnvelope[], lookup: NoticeLookup):
   return out;
 }
 
+/** A person's orchestrator notices: `person` is their person key (null: the first owner). */
+const ofPerson = (person: string | null) =>
+  person ? eq(notices.memberId, person) : isNull(notices.memberId);
+
 /** Stored notices (§8.2): created through `notice.created`, delivered through `notice.delivered`. */
 export class NoticeStore {
   constructor(
@@ -250,10 +270,15 @@ export class NoticeStore {
   }
 
   /**
-   * Undelivered notices for a target, oldest first. `projectId` null = the orchestrator. A
-   * scheduled wake-up counts once it is due.
+   * Undelivered notices for a target, oldest first: a project's PM, or a person's orchestrator
+   * (`projectId` null; `person` is their person key, null for the first owner). A scheduled
+   * wake-up counts once it is due.
    */
-  undelivered(target: NoticeTarget, projectId: string | null): Notice[] {
+  undelivered(
+    target: NoticeTarget,
+    projectId: string | null,
+    person: string | null = null,
+  ): Notice[] {
     return this.db
       .select()
       .from(notices)
@@ -262,6 +287,7 @@ export class NoticeStore {
           eq(notices.target, target),
           isNull(notices.deliveredAt),
           projectId === null ? undefined : eq(notices.projectId, projectId),
+          target === "orchestrator" ? ofPerson(person) : undefined,
           or(isNull(notices.notBefore), lte(notices.notBefore, new Date().toISOString())),
         ),
       )
@@ -272,7 +298,11 @@ export class NoticeStore {
   }
 
   /** A target's scheduled wake-ups still to deliver (due or not), soonest first. */
-  scheduled(target: NoticeTarget, projectId: string | null): Notice[] {
+  scheduled(
+    target: NoticeTarget,
+    projectId: string | null,
+    person: string | null = null,
+  ): Notice[] {
     return this.db
       .select()
       .from(notices)
@@ -282,11 +312,22 @@ export class NoticeStore {
           eq(notices.target, target),
           isNull(notices.deliveredAt),
           projectId === null ? isNull(notices.projectId) : eq(notices.projectId, projectId),
+          target === "orchestrator" ? ofPerson(person) : undefined,
         ),
       )
       .orderBy(asc(notices.notBefore))
       .all()
       .map((r) => r.notice);
+  }
+
+  /** The people (person keys) whose orchestrators have undelivered notices. */
+  orchestratorsWaiting(): (string | null)[] {
+    const rows = this.db
+      .selectDistinct({ memberId: notices.memberId })
+      .from(notices)
+      .where(and(eq(notices.target, "orchestrator"), isNull(notices.deliveredAt)))
+      .all();
+    return rows.map((r) => r.memberId);
   }
 
   /** Undelivered notices held back until a time: the due ones, or the soonest still ahead. */

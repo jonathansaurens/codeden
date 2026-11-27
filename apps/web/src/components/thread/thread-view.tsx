@@ -7,6 +7,7 @@ import { SessionComposer } from "@/components/composer/composer";
 import { ArchivedRoleNotice, isArchivedRole } from "@/components/orchestration/start-fresh";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useClient } from "@/lib/api";
+import { useCan } from "@/lib/members";
 import {
   useEarlierTurns,
   useProjectArchived,
@@ -107,6 +108,8 @@ export function ThreadView({
   const firstMessage = useNewSessionStore((s) => s.firstMessages[sessionId]);
   // An archived project's sessions are read-only: no follow-ups to send.
   const archived = useProjectArchived(session?.projectId);
+  // Viewers can't send (§B.3), so the chips that send would only be refused.
+  const mayAct = useCan("operator", session?.projectId);
 
   if (!session) {
     // Just started from the draft and not in the snapshot yet: its realtime event is on the way.
@@ -163,7 +166,7 @@ export function ThreadView({
         <ArchivedRoleNotice session={session} />
       ) : (
         <>
-          {followups && !running && !archived && (
+          {followups && !running && !archived && mayAct && (
             <FollowupChips sessionId={sessionId} suggestions={followups} />
           )}
           <QueuedMessages session={session} running={running} />

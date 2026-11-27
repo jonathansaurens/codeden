@@ -21,6 +21,7 @@ import { Project } from "./entities/project";
 import { Session } from "./entities/session";
 import { FACTORY_EVENT_PAYLOADS } from "./factory-api";
 import { GITHUB_EVENT_PAYLOADS } from "./github";
+import { Actor, MemberDeletedPayload, MemberEventPayload } from "./members";
 import { ConflictRecord, Notice } from "./orchestration";
 import { PtyId } from "./runner/commands";
 import { RunnerDeletedPayload, RunnerRecordRef, RunnerRegisteredPayload } from "./runners";
@@ -39,11 +40,17 @@ export const RawEventEnvelope = z.object({
   type: z.string(),
   payload: z.unknown(),
   ts: Timestamp,
+  /**
+   * The person or connected agent whose request caused it (§B.4); absent for CodeDen's own
+   * work, agents' events, and events stored before members existed.
+   */
+  actor: Actor.nullable().optional(),
 });
 export type RawEventEnvelope = z.infer<typeof RawEventEnvelope>;
 
-const base = { seq: z.int().positive(), sessionId: Id.nullable(), ts: Timestamp };
-const sessionBase = { seq: z.int().positive(), sessionId: Id, ts: Timestamp };
+const actor = Actor.nullable().optional();
+const base = { seq: z.int().positive(), sessionId: Id.nullable(), ts: Timestamp, actor };
+const sessionBase = { seq: z.int().positive(), sessionId: Id, ts: Timestamp, actor };
 
 function globalEvent<T extends string, P extends z.ZodType>(type: T, payload: P) {
   return z.object({ ...base, type: z.literal(type), payload });
@@ -102,6 +109,12 @@ export const EventEnvelope = z.discriminatedUnion("type", [
   ),
   globalEvent("artifact.created", z.object({ artifact: Artifact })),
   globalEvent("settings.updated", z.object({ settings: Settings })),
+  /** A member joined, or an owner added a connected agent (projected into `members`). */
+  globalEvent("member.created", MemberEventPayload),
+  /** A member's name, roles, approval flag or disabled state changed. */
+  globalEvent("member.updated", MemberEventPayload),
+  /** An owner deleted a member; its devices and tokens were revoked first. */
+  globalEvent("member.deleted", MemberDeletedPayload),
   /**
    * The server added a runner, or re-registered one with new details (projected into
    * `runners`). The home runner is registered on every start.

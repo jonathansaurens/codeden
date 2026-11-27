@@ -5,6 +5,7 @@ import { Archive, Bot, ChevronRight, GripVertical, House, Plus } from "lucide-re
 import { type CSSProperties, useState } from "react";
 import { StatusDot } from "@/components/common/status-dot";
 import { statusTone } from "@/lib/format";
+import { useCan } from "@/lib/members";
 import { useSnapshotData } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useLayoutStore } from "@/stores/layout";
@@ -76,6 +77,9 @@ export function ProjectGroup({
   const menu = useRowMenu();
   const [archiving, setArchiving] = useState(false);
   const entries = useProjectMenu(project, position, () => setArchiving(true));
+  // Starting sessions needs Operator; pinning, moving and archiving change the project: Owner.
+  const mayStart = useCan("operator", project.id);
+  const mayManage = useCan("owner", project.id);
   const pm = sessions
     .filter((s) => s.role === "pm" && !s.archivedAt)
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
@@ -98,7 +102,7 @@ export function ProjectGroup({
           "relative z-10 rounded-md bg-sidebar shadow-md ring-1 ring-sidebar-border",
       )}
     >
-      <RowMenu menu={menu} entries={entries}>
+      <RowMenu menu={menu} entries={mayManage ? entries : []}>
         <div
           {...drag.listeners}
           className={cn(rowBase, "group/head pr-1", homeActive && "text-sidebar-accent-foreground")}
@@ -148,15 +152,19 @@ export function ProjectGroup({
             >
               <House className="size-3.5" />
             </Link>
-            <Link
-              to="/projects/$projectId/new"
-              params={{ projectId: project.id }}
-              className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-border hover:text-foreground"
-              title="New session"
-            >
-              <Plus className="size-3.5" />
-            </Link>
-            <RowMenuButton menu={menu} entries={entries} label={`${project.name} actions`} />
+            {mayStart && (
+              <Link
+                to="/projects/$projectId/new"
+                params={{ projectId: project.id }}
+                className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-border hover:text-foreground"
+                title="New session"
+              >
+                <Plus className="size-3.5" />
+              </Link>
+            )}
+            {mayManage && (
+              <RowMenuButton menu={menu} entries={entries} label={`${project.name} actions`} />
+            )}
           </div>
         </div>
       </RowMenu>

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   type McpServerConfig,
+  OWNER_MEMBER_ID,
   type Project,
   type Session,
   SessionOptions,
@@ -26,7 +27,7 @@ import {
   runnerForSession,
   runnerUnavailable,
 } from "../runner-port";
-import { type PreparedWorkspace, prepareCloneWorkspace } from "./clone-workspace";
+import { type PreparedWorkspace, prepareCloneWorkspace, prepareRoleClone } from "./clone-workspace";
 import { slugWords } from "./conflicts";
 import type { ForkStart } from "./fork";
 import { withHandoffBrief } from "./handoff";
@@ -88,6 +89,8 @@ export interface LaunchOptions {
 }
 
 const PREPARE_TIMEOUT_MS = 10 * 60_000;
+/** How long a PM's turn waits for its clone's fetch (§D.4) before going ahead without it. */
+const ROLE_CLONE_REFRESH_MS = 60_000;
 const START_TIMEOUT_MS = 60_000;
 /**
  * `session.start` refusals after which no provider process of the session runs on the runner:
@@ -107,14 +110,17 @@ export class SessionLauncher {
   /**
    * Start a new session in the background: failures mark it failed (see `start`). A start the
    * runner didn't answer is recorded as such (`unanswered-start.ts`): the session may still open.
+   * Returns the failure, if the start failed.
    */
-  async launch(sessionId: string, opts: LaunchOptions): Promise<void> {
+  async launch(sessionId: string, opts: LaunchOptions): Promise<{ error: unknown } | undefined> {
     try {
       await this.start(sessionId, opts);
+      return undefined;
     } catch (error) {
       const code = unansweredCode(error);
       if (code) setUnanswered(this.deps.repo, sessionId, { code, at: new Date().toISOString() });
       this.fail(sessionId, "start", error);
+      return { error };
     }
   }
 
@@ -167,6 +173,7 @@ export class SessionLauncher {
       ...m,
       workspaceStart: null,
       ...(ws.fallback ? { workspaceFallback: ws.fallback } : {}),
+      ...(ws.repoPath ? { cloneRepoPath: ws.repoPath } : {}),
     }));
     const brief = this.pendingBrief(sessionId);
     const input = brief ? withHandoffBrief(brief, opts.input) : opts.input;
@@ -237,6 +244,8 @@ export class SessionLauncher {
     }
     const project = this.deps.projects.get(session.projectId);
     const runner = runnerForSession(this.deps, session.id);
+    // On a machine the worktree is one of its clone's: made again from the session's branch.
+    if (clonesWorkspaces(runner)) return this.restoreCloneWorktree(runner, session, project);
     const result = await runner.request(
       {
         name: "workspace.prepare",
@@ -263,6 +272,35 @@ export class SessionLauncher {
       session: updated,
       setupNote: await settleSetup(this.gate(runner), updated, project, result),
     };
+  }
+
+  /** `restoreWorktree` on a machine: a new worktree of its project clone, on the same branch. */
+  private async restoreCloneWorktree(
+    runner: RunnerPort,
+    session: Session,
+    project: Project,
+  ): Promise<{ session: Session; setupNote: string | null }> {
+    const ws = await prepareCloneWorkspace(
+      this.deps.git,
+      runner,
+      session,
+      project,
+      {
+        mode: "worktree",
+        branch: session.branch ?? undefined,
+        baseRef: session.baseBranch ?? undefined,
+      },
+      { fork: false, gate: this.gate(runner) },
+    );
+    this.deps.log?.(`session ${session.id}: recreated worktree ${ws.cwd}`);
+    const updated = this.deps.repo.update(session.id, (s) => ({
+      ...s,
+      cwd: ws.cwd,
+      worktreePath: ws.worktreePath,
+      branch: ws.branch ?? s.branch,
+      worktreeRemovedAt: null,
+    }));
+    return { session: updated, setupNote: ws.setupNote };
   }
 
   /** What settles setup the runner held (`setup-gate.ts`). */
@@ -388,8 +426,15 @@ export class SessionLauncher {
       // The orchestrator and PMs never write project code (§11.2). Agent sessions at the
       // `read_only` level carry it in `autonomy`, so it can change live.
       readOnly: session.role !== "agent",
-      codedenHome: this.deps.home,
-      artifactsDir: this.deps.artifacts?.sessionDir(session.id),
+      // CodeDen's home and the artifacts folder are paths on this disk. A runner that doesn't
+      // share it (a machine, a person's own computer, a sandbox) uses its own home instead, which
+      // it fills in itself: this one may not even exist there.
+      ...(clonesWorkspaces(runner)
+        ? {}
+        : {
+            codedenHome: this.deps.home,
+            artifactsDir: this.deps.artifacts?.sessionDir(session.id),
+          }),
       mcpServers,
       ...(ownBranch(session) ? { ownBranch: ownBranch(session) } : {}),
       ...(project?.agentCiEnv === false ? { ciEnv: false } : {}),
@@ -471,7 +516,70 @@ export class SessionLauncher {
 
   private async requireRunner(runner: RunnerPort): Promise<void> {
     const ok = await runner.waitForConnection(this.deps.connectTimeoutMs ?? 15_000);
-    if (!ok) throw runnerUnavailable(runner);
+    if (ok) return;
+    // A machine that can't be reached: say which, why, and what to do (§A.5).
+    const where = runner.remote?.();
+    if (where?.machine) {
+      const why = where.lastError ? `: ${where.lastError}` : "";
+      throw new ServiceError(
+        503,
+        "machine_unreachable",
+        `Machine ${where.machine} can't be reached for this session${why}. CodeDen keeps trying to reconnect; check it in Settings › Machines, then send a message to try again.`,
+      );
+    }
+    throw runnerUnavailable(runner);
+  }
+
+  /**
+   * An orchestrator's working directory (§D.4): `<home>/orchestrator/<member id>` on Home (the
+   * first owner's stays `<home>/orchestrator/`, so existing installs don't move), and
+   * `<runner home>/orchestrator/<member id>` on a runner that doesn't share this disk, which
+   * makes it itself.
+   */
+  private async orchestratorWorkspace(
+    runner: RunnerPort,
+    session: Session,
+  ): Promise<PreparedWorkspace> {
+    const member = session.ownerMemberId ?? OWNER_MEMBER_ID;
+    if (clonesWorkspaces(runner)) {
+      const result = await runner.request(
+        {
+          name: "workspace.prepare",
+          sessionId: session.id,
+          strategy: "folder",
+          folder: `orchestrator/${folderName(member)}`,
+          setupCommands: [],
+          runProjectSetup: false,
+        },
+        PREPARE_TIMEOUT_MS,
+      );
+      return plain(result.cwd);
+    }
+    const dir =
+      member === OWNER_MEMBER_ID
+        ? this.deps.orchestratorDir
+        : join(this.deps.orchestratorDir, folderName(member));
+    mkdirSync(dir, { recursive: true });
+    return plain(dir);
+  }
+
+  /**
+   * Bring a PM's clone on its machine up to date before its turn (§D.4): fetched, its branch
+   * fast-forwarded. Nothing for a PM on the server, which reads the project folder itself. A
+   * fetch that fails (offline, GitHub away) leaves the clone as it is: the turn still goes.
+   */
+  async refreshRoleClone(session: Session): Promise<void> {
+    if (session.role !== "pm" || !session.projectId) return;
+    const runner = runnerForSession(this.deps, session.id);
+    if (!runner.isConnected() || !clonesWorkspaces(runner)) return;
+    try {
+      const project = this.deps.projects.get(session.projectId);
+      await prepareRoleClone(this.deps.git, runner, session, project, ROLE_CLONE_REFRESH_MS);
+    } catch (error) {
+      this.deps.log?.(
+        `session ${session.id}: could not refresh the PM's clone: ${errorMessage(error)}`,
+      );
+    }
   }
 
   private async prepareWorkspace(
@@ -481,9 +589,17 @@ export class SessionLauncher {
     req: WorkspaceRequest,
     fork?: LaunchFork,
   ): Promise<PreparedWorkspace> {
-    if (!project) {
-      mkdirSync(this.deps.orchestratorDir, { recursive: true });
-      return plain(this.deps.orchestratorDir);
+    if (!project) return this.orchestratorWorkspace(runner, session);
+    // A PM on a machine reads the project's clone there, read-only (§D.4).
+    if (clonesWorkspaces(runner) && session.role === "pm" && runner.remote?.().projectClones) {
+      const ws = await prepareRoleClone(
+        this.deps.git,
+        runner,
+        session,
+        project,
+        PREPARE_TIMEOUT_MS,
+      );
+      return ws;
     }
     // A sandbox's runner works in its own clone, at a path it chooses (§9.1).
     if (clonesWorkspaces(runner)) {
@@ -562,4 +678,10 @@ function plain(cwd: string): PreparedWorkspace {
 
 function defaultMeta(workspace: WorkspaceRequest) {
   return { workspaceMode: workspace.mode, workspaceFallback: null, forced: null, queuedBehind: [] };
+}
+
+/** A member id as a folder name: letters, digits, `_` and `-` only. */
+function folderName(memberId: string): string {
+  const safe = memberId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120);
+  return /^[A-Za-z0-9_-]/.test(safe) ? safe : `m${safe}`;
 }

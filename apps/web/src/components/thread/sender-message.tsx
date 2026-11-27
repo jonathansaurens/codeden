@@ -1,5 +1,5 @@
 import type { MessageSender } from "@codeden/contracts";
-import { Factory, Hexagon, type LucideIcon, Workflow } from "lucide-react";
+import { Bot, Factory, Hexagon, type LucideIcon, Workflow } from "lucide-react";
 import { useMemo, useState } from "react";
 import { badgePill, RoleBadge } from "@/components/orchestration/role-badge";
 import { separateTagLines } from "@/lib/markdown-tags";
@@ -18,6 +18,7 @@ const others: Record<
   factory: { label: "Factory", icon: Factory },
   automation: { label: "Automation", icon: Workflow },
   codeden: { label: "CodeDen", icon: Hexagon },
+  member: { label: "Connected agent", icon: Bot },
 };
 
 const senderName: Record<Sender, string> = {
@@ -26,6 +27,7 @@ const senderName: Record<Sender, string> = {
   factory: "the factory",
   automation: "an automation",
   codeden: "CodeDen",
+  member: "a connected agent",
 };
 
 /** Messages longer than this many lines (or characters) are collapsed with "Show more". */

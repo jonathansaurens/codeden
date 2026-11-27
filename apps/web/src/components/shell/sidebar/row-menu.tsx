@@ -147,6 +147,8 @@ export function RowMenu({
   entries: RowMenuEntry[];
   children: ReactElement;
 }) {
+  // Nothing the caller may do (a Viewer's row): no menu at all rather than an empty one.
+  if (entries.length === 0) return children;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild onKeyDown={menu.onKeyDown} onContextMenu={menu.onContextMenu}>

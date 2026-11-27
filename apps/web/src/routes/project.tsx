@@ -18,6 +18,7 @@ import { ProjectGithub } from "@/components/github/project-github";
 import { ArchivedSessionsList, SessionsList } from "@/components/project/lists";
 import { NowNext } from "@/components/project/now-next";
 import { ProjectExecution } from "@/components/project/project-execution";
+import { ProjectPmRunsOn } from "@/components/project/project-pm-runs-on";
 import { ProjectSettings } from "@/components/project/project-settings";
 import { ProjectTile } from "@/components/shell/sidebar/project-group";
 import { Button } from "@/components/ui/button";
@@ -149,6 +150,7 @@ export function ProjectPage({
             <div className="max-w-3xl">
               <ProjectSettings project={project} />
               <ProjectExecution project={project} />
+              <ProjectPmRunsOn project={project} />
             </div>
           ) : (
             <>

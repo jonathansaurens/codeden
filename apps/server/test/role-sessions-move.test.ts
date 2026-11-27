@@ -96,6 +96,7 @@ describe("role sessions: the queue moves with the role (§8.1)", () => {
       expect((await roles.ensure("pm", "p1")).id).toBe(next?.id);
 
       // The new PM's turn that takes the question answers the waiting `ask_pm` call.
+      asks.delivering(next?.id as string, [question]);
       turn(next?.id as string, "turn-1", question, "Yes, the build is green.");
       expect(await answer).toEqual({ status: "answered", text: "Yes, the build is green." });
     }),
@@ -116,6 +117,7 @@ describe("role sessions: the queue moves with the role (§8.1)", () => {
 
       // The held question is delivered later, to the session the role then gets.
       const next = await roles.ensure("pm", "p1");
+      asks.delivering(next.id, [question]);
       turn(next.id, "turn-1", question, "No news.");
       expect(await Promise.race([answer, Promise.resolve("unanswered")])).toEqual({
         status: "answered",

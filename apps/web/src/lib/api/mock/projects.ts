@@ -85,6 +85,7 @@ export function mockProjectApi(world: MockWorld): MockProjectApi {
         timezone: null,
         agentCiEnv: true,
         execution: { backend: "local" },
+        pmRunsOn: "server",
         pinned: false,
         sortOrder: last + 1,
         createdAt: now,
@@ -117,6 +118,23 @@ export function mockProjectApi(world: MockWorld): MockProjectApi {
     async updateProject(id, patch) {
       if (patch.execution?.backend === "docker" && find(id).kind !== "github") {
         throw new ApiRequestError(400, "backend_unavailable", NOT_GITHUB);
+      }
+      if (patch.execution?.backend === "ssh") {
+        // Automatic suits any project: one that isn't on GitHub always lands on Home.
+        if (patch.execution.machine !== "auto" && find(id).kind !== "github") {
+          throw new ApiRequestError(
+            400,
+            "machine_unavailable",
+            "Machines need a GitHub project: each machine clones the repository from GitHub",
+          );
+        }
+        if (!patch.execution.machine) {
+          throw new ApiRequestError(400, "machine_required", "Choose the machine");
+        }
+      }
+      // Like the server: a PM leaves the server only for a GitHub project.
+      if (patch.pmRunsOn && patch.pmRunsOn !== "server" && find(id).kind !== "github") {
+        throw new ApiRequestError(400, "machine_unavailable", "The project isn't on GitHub");
       }
       const project = {
         ...find(id),

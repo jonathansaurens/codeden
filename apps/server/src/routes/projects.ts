@@ -2,6 +2,7 @@ import {
   ArchivedSessionsQuery,
   CreateProjectRequest,
   checksOf,
+  OWNER_MEMBER_ID,
   type ProjectChecksResponse,
   ProjectCommandsQuery,
   ReorderProjectsRequest,
@@ -11,7 +12,9 @@ import {
 } from "@codeden/contracts";
 import { Hono } from "hono";
 import { z } from "zod";
+import { principalOf } from "../members/principal";
 import type { AppServices } from "../services/container";
+import { badRequest } from "../services/errors";
 import { listFolderFiles } from "../services/files/session-files";
 import { readProjectConfig } from "../services/projects/project-config";
 import { archivedSessionsPage } from "../services/sessions/archived";
@@ -43,8 +46,35 @@ export function projectRoutes(s: AppServices) {
       // Docker must be there to switch a project to it (checked now, not cached).
       if (patch.execution) {
         await s.sandboxes.assertUsable(s.projects.get(c.req.param("id")), patch.execution.backend);
+        const machine = patch.execution.machine;
+        const named = machine && machine !== "auto" ? machine : null;
+        const record = named ? s.machines?.find(named) : undefined;
+        if (patch.execution.backend === "ssh" && named && !record) {
+          throw badRequest(`No machine is called ${named}`, "unknown_machine");
+        }
+        // A person's own computer is picked per session, never for a whole project (§D.5).
+        if (patch.execution.backend === "ssh" && record?.ownerMemberId) {
+          throw badRequest(
+            `${s.machines?.computerName(record)} is someone's own computer: choose it when you start a session instead`,
+            "machine_personal",
+          );
+        }
       }
-      return c.json(s.projects.update(c.req.param("id"), patch));
+      // Where the PM runs (§D.4): an Owner's choice, among the machines they may use.
+      if (patch.pmRunsOn !== undefined) {
+        const member = principalOf(c)?.member.id ?? OWNER_MEMBER_ID;
+        const id = c.req.param("id");
+        const refused = s.rolePlacement.refusal(
+          "pm",
+          s.projects.get(id).id,
+          member,
+          patch.pmRunsOn,
+        );
+        if (refused) throw refused;
+      }
+      const project = s.projects.update(c.req.param("id"), patch);
+      if (patch.pmRunsOn !== undefined) void s.orchestration.roles.applyPlacement("pm", project.id);
+      return c.json(project);
     })
     .get("/:id/commands", queryOf(ProjectCommandsQuery), (c) =>
       c.json<SlashCommandList>(
