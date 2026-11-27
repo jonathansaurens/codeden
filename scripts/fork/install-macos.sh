@@ -12,7 +12,7 @@ URL=$(printf '%s' "$JSON" | grep -o "\"browser_download_url\": *\"[^\"]*CodeDen-
 TAG=$(printf '%s' "$JSON" | grep -o '"tag_name": *"[^"]*"' | sed 's/.*"\(v[^"]*\)"/\1/')
 [ -n "$URL" ] || { echo "No $ARCH build in the latest release ($TAG)."; exit 1; }
 TMP=$(mktemp -d); trap 'hdiutil detach -quiet "$TMP/mnt" 2>/dev/null || true; rm -rf "$TMP"' EXIT
-echo "Downloading $TAG for $ARCH…"
+echo "Downloading ${TAG} for ${ARCH}…"
 curl -fL --progress-bar -o "$TMP/app.dmg" "$URL"
 if pgrep -f "/CodeDen Fork.app/Contents/MacOS/" >/dev/null; then
   echo "Quitting CodeDen Fork…"; osascript -e 'quit app "CodeDen Fork"' || true
