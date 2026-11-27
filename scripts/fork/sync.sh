@@ -76,6 +76,14 @@ git commit -q -am "chore(fork): CodeDen Fork $V" -m "Upstream $UPSTREAM_V with t
 if [ "$(git rev-parse HEAD^{tree})" = "$(git rev-parse origin/fork^{tree})" ] &&
    [ "$(git rev-parse HEAD~1)" = "$(git rev-parse origin/fork~1)" ]; then git reset -q --hard origin/fork; fi
 
+# macOS bash 3.2 reads a non-ASCII character straight after $NAME as part of the name ("$ARCH" then an ellipsis
+# is the variable "ARCH…"), which set -u turns into "unbound variable". Write ${NAME} instead.
+step "Checking the fork's shell scripts"
+if grep -nE '\$[A-Za-z_][A-Za-z0-9_]*[^ -~[:space:]]' scripts/fork/*.sh scripts/fork/ci/*.sh scripts/fork/codeden-remote scripts/fork/pre-push; then
+  echo "  Put braces around the variables above: \${NAME}, not \$NAME, before a non-ASCII character."; exit 1
+fi
+for f in scripts/fork/*.sh scripts/fork/ci/*.sh scripts/fork/codeden-remote scripts/fork/pre-push; do /bin/bash -n "$f"; done
+
 if [ $TEST = 1 ]; then
   step "Checking: typecheck, lint, test"
   pnpm install --frozen-lockfile >/dev/null
