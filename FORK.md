@@ -87,9 +87,9 @@ fork's release (`npx -y https://github.com/jonathansaurens/codeden/releases/down
 
 ## Using one Mac's CodeDen from another
 
-`scripts/fork/codeden-remote` opens a CodeDen running on another Mac in this Mac's browser,
-through an SSH tunnel. It needs key-based SSH to that Mac and a `Host` entry for it in
-`~/.ssh/config`, `mbp` by default. Copy it to `~/bin` on the Mac you work from, then run:
+`scripts/fork/codeden-remote` opens the CodeDen running on another Mac in this Mac's browser,
+through an SSH tunnel over a private network. [scripts/fork/remote-access.md](scripts/fork/remote-access.md)
+is the full setup, step by step, for both Macs, written so an agent can follow it. Once set up:
 
 ```sh
 codeden-remote          # tunnel to mbp and open CodeDen
