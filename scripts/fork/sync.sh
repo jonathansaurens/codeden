@@ -43,7 +43,7 @@ while read -r branch note; do
     exit 1
   fi
   echo "  $branch ($note)"
-done < <(git show "$PATCHES:scripts/fork/branches.txt" | sed 's/#.*//' | awk 'NF')
+done < <(git show "$PATCHES:scripts/fork/branches.txt" | grep -vE '^[[:space:]]*(#|$)')
 BASE=$(git rev-parse HEAD)
 # Same result as last time: keep the existing commits, so nothing is rewritten for no reason.
 if [ "$(git rev-parse "$BASE^{tree}")" = "$(git rev-parse "$OLD_BASE^{tree}")" ]; then
@@ -79,7 +79,10 @@ if [ "$(git rev-parse HEAD^{tree})" = "$(git rev-parse origin/fork^{tree})" ] &&
 if [ $TEST = 1 ]; then
   step "Checking: typecheck, lint, test"
   pnpm install --frozen-lockfile >/dev/null
-  pnpm typecheck && pnpm lint && pnpm test
+  # One per line: under set -e, a failure inside an && chain doesn't stop the script.
+  pnpm typecheck
+  pnpm lint
+  pnpm test
 fi
 
 git branch -f fork-base "$BASE"; git branch -f fork-patches "$NEW_PATCHES"; git branch -f fork HEAD
