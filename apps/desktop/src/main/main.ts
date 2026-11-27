@@ -16,9 +16,12 @@ import { redactToken } from "./security";
 import { homeFiles } from "./server-plan";
 
 const args = parseLaunchArgs(process.argv.slice(1));
+// A fork build isn't signed, so it can't install updates itself: no background checks. Update
+// it with the fork's installer (scripts/fork/install-macos.sh), which fetches the latest release.
+process.env.CODEDEN_UPDATE_CHECK ??= "0";
 app.setName("CodeDen");
 app.setPath("userData", homeFiles(args.home).desktop);
-if (process.platform === "win32") app.setAppUserModelId("dev.codeden.app");
+if (process.platform === "win32") app.setAppUserModelId("dev.codeden.fork");
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
