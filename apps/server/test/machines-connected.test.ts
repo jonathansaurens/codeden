@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { type RunningServer, startServer } from "../src";
 import { machineCredentials, runnerState } from "../src/db/schema";
+import { pinnedCommand } from "../src/execution/ssh/args";
 import { type Exec, runTool } from "../src/services/exec";
 import type { GitBroker } from "../src/services/git-broker";
 import { type FakeComputer, fakeComputer, paired } from "./support/fake-computer";
@@ -181,7 +182,7 @@ describe("pairing a computer", () => {
   it("trades a single-use code for a device key, and refuses an expired one", async () => {
     const code = await newCode();
     expect(code.command).toBe(
-      `npx -y codeden@${(await api("GET", "/health")).body.version} connect ${server.url} --code ${code.code}`,
+      `${pinnedCommand((await api("GET", "/health")).body.version)} connect ${server.url} --code ${code.code}`,
     );
     expect((await api("GET", `/machines/connect-codes/${code.id}`)).body.state).toBe("waiting");
 
@@ -388,5 +389,14 @@ describe("a connected computer", () => {
     expect((await api("DELETE", `/members/${bob.id}`)).status).toBe(200);
     await waitUntil(() => machine()?.state === "deleted");
     expect(server.services.computers?.authenticate(pair.key)).toBeUndefined();
+  });
+});
+
+describe("the machine command of a fork build", () => {
+  it("installs the fork's own release package, which isn't on npm", () => {
+    expect(pinnedCommand("0.7.10")).toBe("npx -y codeden@0.7.10");
+    expect(pinnedCommand("0.7.10-fork.1")).toBe(
+      "npx -y https://github.com/jonathansaurens/codeden/releases/download/v0.7.10-fork.1/codeden-0.7.10-fork.1.tgz",
+    );
   });
 });

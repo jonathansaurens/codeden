@@ -3,9 +3,9 @@ import { PACKAGE_NAME } from "./app-dir";
 
 /** The public npm registry; `CODEDEN_UPDATE_REGISTRY` overrides it (tests only). */
 export const DEFAULT_REGISTRY = "https://registry.npmjs.org";
-const RELEASES_API = "https://api.github.com/repos/leonvanzyl/codeden/releases/tags/v{version}";
-const RELEASE_PAGE = "https://github.com/leonvanzyl/codeden/releases/tag/v{version}";
-const CHANGELOG = "https://raw.githubusercontent.com/leonvanzyl/codeden/main/CHANGELOG.md";
+const RELEASES_API = "https://api.github.com/repos/jonathansaurens/codeden/releases/tags/v{version}";
+const RELEASE_PAGE = "https://github.com/jonathansaurens/codeden/releases/tag/v{version}";
+const CHANGELOG = "https://raw.githubusercontent.com/jonathansaurens/codeden/fork/CHANGELOG.md";
 const TIMEOUT_MS = 5_000;
 
 /** The registry this process checks and installs from. */

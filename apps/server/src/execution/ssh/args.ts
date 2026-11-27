@@ -30,8 +30,15 @@ export const SSH_OPTIONS = [
   "-T",
 ];
 
-/** The default command prefix on a machine: `npx -y codeden@<server version>`. */
+/** Where this fork's builds are published (its versions aren't on npm). */
+export const FORK_RELEASES = "https://github.com/jonathansaurens/codeden/releases/download";
+
+/**
+ * The default command prefix on a machine: `npx -y codeden@<server version>`, or for a fork build
+ * (`x.y.z-fork.n`) the same version's package from the fork's release.
+ */
 export function pinnedCommand(version: string): string {
+  if (/-fork\./.test(version)) return `npx -y ${FORK_RELEASES}/v${version}/codeden-${version}.tgz`;
   return `npx -y codeden@${version}`;
 }
 
