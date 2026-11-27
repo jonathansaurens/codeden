@@ -8,3 +8,4 @@ fix/diff-panel-large-diffs        upstream PR #669
 fix/vitest-busy-workers           upstream PR #670
 fix/clone-reuse-existing-checkout upstream PR #671
 fix/gpt-6.2-prices                upstream PR #677
+feat/remote-server                desktop app opens other CodeDen servers in their own windows (bradvin, upstream #647) + private-network http
