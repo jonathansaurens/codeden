@@ -1,0 +1,10 @@
+# Branches merged into the fork, in this order, on top of upstream/main (scripts/fork/sync.sh).
+# One per line: the branch on origin, then what it is. sync.sh skips a branch upstream has merged
+# and tells you to delete its line here.
+
+feat/all                          teams, machines, connected computers, personal orchestrators (fork only for now)
+fix/server-streaming-stall        upstream PR #668
+fix/diff-panel-large-diffs        upstream PR #669
+fix/vitest-busy-workers           upstream PR #670
+fix/clone-reuse-existing-checkout upstream PR #671
+fix/gpt-6.2-prices                upstream PR #677

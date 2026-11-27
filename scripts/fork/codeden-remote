@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Opens the CodeDen running on another Mac in this Mac's browser, over SSH.
+#   codeden-remote [host]   tunnel to <host> (default: mbp, from ~/.ssh/config) and open CodeDen
+#   codeden-remote stop     close the tunnel
+# The tunnel makes CodeDen see this browser as local, so it signs in with the install token,
+# which is read over the same SSH connection. Nothing listens on the network for it.
+set -euo pipefail
+PORT=4317
+CTL="$HOME/.ssh/codeden-remote.sock"
+if [ "${1:-}" = stop ]; then
+  ssh -S "$CTL" -O exit dummy 2>/dev/null && echo "Tunnel closed." || echo "No tunnel open."
+  exit 0
+fi
+HOST=${1:-mbp}
+if ssh -S "$CTL" -O check dummy 2>/dev/null; then
+  echo "Tunnel already open."
+else
+  if lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "Port $PORT is in use here (is CodeDen running on this Mac?). Quit it first: CodeDen only accepts its own port."
+    exit 1
+  fi
+  ssh -f -N -M -S "$CTL" -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L "$PORT:127.0.0.1:$PORT" "$HOST"
+  echo "Tunnel to $HOST open (codeden-remote stop closes it)."
+fi
+TOKEN=$(ssh -S "$CTL" "$HOST" 'cat ~/.codeden/install-token' | tr -d '\r\n')
+[ -n "$TOKEN" ] || { echo "Couldn't read CodeDen's install token on $HOST."; exit 1; }
+open "http://localhost:$PORT/?token=$TOKEN"

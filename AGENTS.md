@@ -74,3 +74,9 @@ The published package is `apps/cli` (`codeden` on npm). `.github/workflows/relea
 2. Pushing a `vX.Y.Z` tag yourself still releases: run `node scripts/release/bump-version.mjs <patch|minor|major>` and commit what it changed and staged, then tag. The tag must match the package version or the workflow fails.
 3. The workflow publishes with `npm publish --provenance --access public` using **npm Trusted Publishing** (OIDC): the `codeden` package on npmjs.com trusts `leonvanzyl/codeden` + `release.yml`, so no token secret is needed. It then creates the GitHub Release as a **draft** with the packed `.tgz`. Provenance requires a public repository. A `desktop` matrix job (Windows, macOS, Linux) then builds the desktop installers and attaches them with the updater metadata (`latest*.yml`, blockmaps) to the same release, and a final `publish` job makes the release public once all three are attached (desktop apps read the latest published release, so they never see one without its update files; if a desktop job fails, re-run it and the release publishes when everything has succeeded). Signing is optional: repository secrets `CSC_LINK`/`CSC_KEY_PASSWORD` (Windows .pfx or macOS Developer ID .p12) and `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` (notarization); without them the installers are unsigned, and unsigned macOS builds can't update themselves.
 4. To rehearse, pick **dry-run** instead: it builds and packs and uploads the tarball and installers as artifacts, without changing the version or publishing. Preview the changelog section locally with `pnpm changelog:preview`.
+
+## This checkout is CodeDen Fork
+
+This repository is CodeDen Fork, a personal fork. Before working here, read [FORK.md](FORK.md):
+how the fork is built, where a change goes (upstream pull request or fork only) and the rules for
+work that goes upstream. Nothing in FORK.md, `scripts/fork/` or this section may reach upstream.
