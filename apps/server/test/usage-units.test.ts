@@ -71,8 +71,15 @@ describe("price table", () => {
       inputPerMTok: 8,
       outputPerMTok: 40,
       cacheReadPerMTok: 0.4,
+      cacheWritePerMTok: 10,
     });
-    expect(findPrice("codex", "gpt-6.2-sol")?.outputPerMTok).toBe(10);
+    expect(findPrice("codex", "gpt-6.2-sol")).toMatchObject({
+      outputPerMTok: 10,
+      cacheWritePerMTok: 2.5,
+    });
+    // OpenAI charges cache writes from GPT-5.6 on (1.25× input), not before.
+    expect(findPrice("codex", "gpt-5.6-sol")?.cacheWritePerMTok).toBe(5);
+    expect(findPrice("codex", "gpt-5.5")?.cacheWritePerMTok).toBe(0);
     expect(findPrice("codex", "mystery-model")).toBeNull();
     expect(findPrice("fake", "default")).toBeNull();
   });
