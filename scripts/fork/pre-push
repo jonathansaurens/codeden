@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Keeps fork-only work out of upstream. As the repository's pre-push hook (sync.sh installs it in
+# every worktree's shared hooks), it refuses to push a branch that carries anything fork-only,
+# except the fork's own branches to origin. Fork-only means: FORK.md, scripts/fork/, or an added
+# line naming the fork (its app name, its GitHub owner, its app id, a -fork.n version).
+#   scripts/fork/pre-push --check <commit>   check one commit as if it were pushed for a pull request
+set -uo pipefail
+FORK_BRANCHES='^refs/heads/(fork|fork-base|fork-patches|pr-assets)$'
+FORK_TEXT='CodeDen Fork|jonathansaurens|dev\.codeden\.fork|-fork\.[0-9]'
+
+check() { # $1: commit, $2: name for messages
+  local base files text
+  base=$(git merge-base upstream/main "$1" 2>/dev/null) || { echo "pre-push: no upstream/main to compare with (git fetch upstream)"; return 1; }
+  files=$(git diff --name-only "$base" "$1" -- FORK.md scripts/fork)
+  text=$(git diff "$base" "$1" | grep -E '^\+' | grep -vE '^\+\+\+' | grep -E "$FORK_TEXT" | head -5)
+  [ -z "$files$text" ] && return 0
+  echo "pre-push: $2 carries fork-only work, which must never reach upstream:"
+  [ -n "$files" ] && echo "$files" | sed 's/^/  file: /'
+  [ -n "$text" ] && echo "$text" | cut -c1-120 | sed 's/^/  line: /'
+  echo "Start upstream branches from upstream/main; fork-only changes go on fork-patches (see FORK.md)."
+  return 1
+}
+
+if [ "${1:-}" = --check ]; then check "$(git rev-parse "$2")" "$2"; exit; fi
+
+REMOTE_URL=${2:-}; status=0
+while read -r local_ref local_sha remote_ref _; do
+  [[ "$local_sha" =~ ^0+$ ]] && continue                 # deleting a branch
+  [[ "$remote_ref" == refs/heads/* ]] || continue
+  if [[ "$REMOTE_URL" != *leonvanzyl/* && "$remote_ref" =~ $FORK_BRANCHES ]]; then continue; fi
+  check "$local_sha" "${remote_ref#refs/heads/}" || status=1
+done
+exit $status
