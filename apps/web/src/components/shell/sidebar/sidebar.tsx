@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { useLayoutStore } from "@/stores/layout";
 import { useUiStore } from "@/stores/ui";
 import { Logo } from "../logo";
+import { ServerSwitcher } from "../server-switcher";
 import { NavRow, rowBase } from "./nav-row";
 import { SortableProjectGroup } from "./project-list";
 import { SidebarFooter } from "./sidebar-footer";
@@ -95,6 +96,7 @@ export function Sidebar({ width, onClose }: { width: number | string; onClose?: 
       <div className="flex h-12 shrink-0 items-center gap-2 pr-2 pl-4">
         <Logo className="size-[22px]" />
         <span className="text-[15px] font-semibold tracking-tight">CodeDen</span>
+        <ServerSwitcher />
         {onClose ? (
           <Button
             variant="ghost"

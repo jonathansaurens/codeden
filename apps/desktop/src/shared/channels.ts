@@ -12,4 +12,11 @@ export const CHANNELS = {
   browserCapture: "codeden:browser-capture",
   browserInspect: "codeden:browser-inspect",
   browserShortcut: "codeden:browser-shortcut",
+  serversList: "codeden:servers-list",
+  serversOpen: "codeden:servers-open",
+  serversAdd: "codeden:servers-add",
+  serversRename: "codeden:servers-rename",
+  serversRemove: "codeden:servers-remove",
+  serversManage: "codeden:servers-manage",
+  serversChanged: "codeden:servers-changed",
 } as const;

@@ -209,6 +209,7 @@ describe("app menu", () => {
     retryLoading: noop,
     quit: noop,
     zoom: noop,
+    servers: { list: [], open: () => {}, add: () => {}, manage: () => {} },
   };
 
   it("has the standard edit, view and window menus on every OS", () => {

@@ -16,6 +16,8 @@ export interface MainWindowOptions {
   log: (message: string) => void;
   quit: () => void;
   onRendererGone: (details: Electron.RenderProcessGoneDetails, retry: boolean) => void;
+  /** A window on another CodeDen server (§17.1): its own persistent session, its own title. */
+  remote?: { id: string; name: string; partition: string };
 }
 
 /**
@@ -44,7 +46,7 @@ export class MainWindow {
       minWidth: 900,
       minHeight: 600,
       show: false,
-      title: "CodeDen",
+      title: opts.remote ? `CodeDen: ${opts.remote.name}` : "CodeDen",
       icon: opts.icon,
       backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0d10" : "#ffffff",
       autoHideMenuBar: process.platform !== "darwin",
@@ -54,6 +56,10 @@ export class MainWindow {
         sandbox: true,
         nodeIntegration: false,
         webSecurity: true,
+        // A remote server's cookies live in its own partition, shared with nothing else.
+        ...(opts.remote ? { partition: opts.remote.partition } : {}),
+        // The preload reads these to know, before any call, that it is a remote window.
+        additionalArguments: opts.remote ? [`--codeden-remote=${opts.remote.id}`] : [],
         spellcheck: true,
         // Keep the live connection and notifications timely while hidden in the tray.
         backgroundThrottling: false,
@@ -75,6 +81,21 @@ export class MainWindow {
     });
     this.guard();
     this.trackBounds();
+    if (opts.remote) {
+      // The page's own title would hide which server this is.
+      this.window.on("page-title-updated", (event) => event.preventDefault());
+    }
+  }
+
+  /** Rename the window's title (a remote server was renamed). */
+  rename(name: string): void {
+    if (!this.window.isDestroyed()) this.window.setTitle(`CodeDen: ${name}`);
+  }
+
+  /** Close for good (a server was removed). */
+  destroy(): void {
+    this.quitting = true;
+    if (!this.window.isDestroyed()) this.window.destroy();
   }
 
   /** Zoom the UI in or out a step, or back to 100% (View menu); saved with the window state. */

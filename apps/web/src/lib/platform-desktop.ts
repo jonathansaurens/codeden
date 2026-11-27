@@ -25,16 +25,21 @@ export function createDesktopPlatform(api: CodedenDesktopApi, web: PlatformBridg
     window.dispatchEvent(new KeyboardEvent("keydown", { ...s, bubbles: true, cancelable: true }));
   });
 
+  // A window on another CodeDen server acts as a normal browser where a path on this Mac or
+  // a view relayed from this Mac would be wrong: the server's own folder browser, the runner's
+  // Chromium for session browsers, and no app settings (those are This Mac's).
+  const remote = Boolean(api.remote);
+
   return {
     capabilities: {
       notifications: true,
       badge: true,
       clipboardImages: web.capabilities.clipboardImages,
-      folderPicker: true,
-      osIntegration: true,
-      nativeBrowser: Boolean(api.browser),
+      folderPicker: !remote,
+      osIntegration: !remote,
+      nativeBrowser: !remote && Boolean(api.browser),
     },
-    nativeBrowser: api.browser ?? null,
+    nativeBrowser: remote ? null : (api.browser ?? null),
     notificationPermission: () => "granted",
     requestNotificationPermission: async () => "granted",
     notify(title, opts) {
@@ -57,9 +62,10 @@ export function createDesktopPlatform(api: CodedenDesktopApi, web: PlatformBridg
     writeClipboard: (text) => web.writeClipboard(text),
     readClipboardImage: () => web.readClipboardImage(),
     isFocused: () => web.isFocused(),
-    pickFolder: (opts) => api.pickFolder(opts),
+    pickFolder: (opts) => (remote ? Promise.resolve(null) : api.pickFolder(opts)),
     onNavigate: (listener) => api.onNavigate(listener),
     launchAtLoginSupported() {
+      if (remote) return Promise.resolve(false);
       loginSupport ??= api.info().then(
         (info) => info.launchAtLoginSupported,
         () => false,

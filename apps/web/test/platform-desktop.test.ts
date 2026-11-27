@@ -106,3 +106,25 @@ describe("desktop updates in the UI (§17)", () => {
     expect(updateModeHelp("notify", "packaged")).toContain("npm registry");
   });
 });
+
+describe("a window on another CodeDen server (§17.1)", () => {
+  it("acts as a browser for folders and session browsers, but keeps native notifications", async () => {
+    const desktop = fakeDesktop();
+    const p = selectPlatform({
+      codedenDesktop: { ...desktop.api, remote: { id: "abcdef012345" }, browser: undefined },
+    });
+    expect(p.capabilities).toMatchObject({
+      folderPicker: false,
+      osIntegration: false,
+      nativeBrowser: false,
+      notifications: true,
+      badge: true,
+    });
+    expect(p.nativeBrowser).toBeNull();
+    expect(await p.pickFolder()).toBeNull();
+    expect(desktop.api.pickFolder).not.toHaveBeenCalled();
+    expect(await p.launchAtLoginSupported()).toBe(false);
+    p.notify("Approval needed", { tag: "t1" });
+    expect(desktop.notified).toHaveLength(1);
+  });
+});

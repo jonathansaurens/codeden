@@ -1,3 +1,4 @@
+import type { DesktopServer } from "@codeden/contracts";
 import type { MenuItemConstructorOptions } from "electron";
 import type { ZoomCommand } from "./zoom";
 
@@ -11,6 +12,30 @@ export interface MenuActions {
   retryLoading: () => void;
   quit: () => void;
   zoom: (command: ZoomCommand) => void;
+  /** Other CodeDen servers (§17.1). */
+  servers: {
+    list: DesktopServer[];
+    open: (id: string) => void;
+    add: () => void;
+    manage: () => void;
+  };
+}
+
+/** The Servers menu: each server with Cmd/Ctrl+1 to 9, then Add server and Manage servers. */
+export function serversMenu(servers: MenuActions["servers"]): MenuItemConstructorOptions {
+  return {
+    label: "Servers",
+    submenu: [
+      ...servers.list.map((server, index) => ({
+        label: server.name,
+        ...(index < 9 ? { accelerator: `CommandOrControl+${index + 1}` } : {}),
+        click: () => servers.open(server.id),
+      })),
+      { type: "separator" },
+      { label: "Add server...", click: servers.add },
+      { label: "Manage servers...", click: servers.manage },
+    ],
+  };
 }
 
 /**
@@ -103,6 +128,7 @@ export function appMenuTemplate(
       { role: "togglefullscreen" },
     ],
   });
+  template.push(serversMenu(actions.servers));
   template.push({ role: "windowMenu" });
   template.push({
     role: "help",
