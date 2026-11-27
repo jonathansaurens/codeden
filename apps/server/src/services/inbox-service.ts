@@ -23,6 +23,7 @@ import { rowToInbox } from "../db/rows";
 import { inboxItems } from "../db/schema";
 import { openRunFailed, runFailedAgain, runFailedInbox } from "../events/reducer/items";
 import type { EventStore } from "../events/store";
+import { answeredBy, answeredByOf, assertMayAnswerApproval } from "../members/attribution";
 import { badRequest, notFound } from "./errors";
 
 /** Sends an approval/answer to the agent; provided by the session service. */
@@ -91,15 +92,24 @@ export class InboxService {
    */
   async resolve(id: string, req: ResolveInboxRequest): Promise<InboxItem> {
     const item = this.get(id);
-    if (item.status !== "open") return item;
     const answerable = (item.kind === "approval" || item.kind === "question") && item.requestId;
+    // Dismissing an approval decides it as much as answering does (§C.3).
+    if (item.kind === "approval") assertMayAnswerApproval();
+    // An answer to an item someone already answered: the session says who (§B.4).
+    if (item.status !== "open" && answerable && req.response && item.sessionId && item.requestId) {
+      await this.responder()(item.sessionId, item.requestId, req.response);
+    }
+    if (item.status !== "open") return item;
     if (answerable && req.status === "resolved") {
       if (!req.response) throw badRequest("This item needs a response", "response_required");
       if (!item.sessionId || !item.requestId) throw badRequest("Item has no session");
       await this.responder()(item.sessionId, item.requestId, req.response);
       return this.get(id);
     }
-    return this.close(item, req.status, req.note ? { note: req.note } : null);
+    // Who closed it, so a second answer is told who did (§B.4).
+    const by = answeredBy();
+    const resolution = req.note ? { note: req.note, ...by } : "answeredBy" in by ? by : null;
+    return this.close(item, req.status, resolution);
   }
 
   /** Close an open item now (eagerly, before the agent's confirmation arrives). */
@@ -112,20 +122,33 @@ export class InboxService {
     return next;
   }
 
-  /** Close the open item mirroring a session's request, if there is one. */
-  closeForRequest(sessionId: string, requestId: string, resolution: JsonValue): void {
+  /** The item mirroring a session's request, open or not (first answer wins, §B.4). */
+  findForRequest(sessionId: string, requestId: string): InboxItem | undefined {
     const row = this.db
       .select()
       .from(inboxItems)
-      .where(
-        and(
-          eq(inboxItems.sessionId, sessionId),
-          eq(inboxItems.requestId, requestId),
-          eq(inboxItems.status, "open"),
-        ),
-      )
+      .where(and(eq(inboxItems.sessionId, sessionId), eq(inboxItems.requestId, requestId)))
       .get();
-    if (row) this.close(rowToInbox(row), "resolved", resolution);
+    return row ? rowToInbox(row) : undefined;
+  }
+
+  /**
+   * Close the open item mirroring a session's request, if there is one. When the request's own
+   * completion closed it first (the agent's confirmation, or an `ask_user` answer), the item
+   * still records who answered, so a second answer is told who (§B.4).
+   */
+  closeForRequest(sessionId: string, requestId: string, resolution: JsonValue): void {
+    const item = this.findForRequest(sessionId, requestId);
+    if (!item) return;
+    if (item.status === "open") {
+      this.close(item, "resolved", resolution);
+      return;
+    }
+    const by = answeredByOf(resolution);
+    if (!by || answeredByOf(item.resolution)) return;
+    const closed = isRecord(item.resolution) ? item.resolution : {};
+    const next = { ...item, resolution: { ...closed, answeredBy: by } };
+    this.store.append([{ type: "inbox.updated", sessionId, payload: { item: next } }]);
   }
 
   /** Dismiss a session's open approvals and questions (session stopped). */
@@ -276,4 +299,8 @@ export function closedItem(
   now = new Date().toISOString(),
 ): InboxItem {
   return { ...item, status, resolution, resolvedAt: now, updatedAt: now };
+}
+
+function isRecord(value: unknown): value is Record<string, JsonValue> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

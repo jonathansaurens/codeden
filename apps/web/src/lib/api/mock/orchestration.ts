@@ -3,7 +3,9 @@ import {
   type GithubConnection,
   type GithubPr,
   type GithubPrDetails,
+  OWNER_MEMBER_ID,
   type ProjectStatus,
+  type RunsOnChoice,
   type Session,
   type StartSessionResponse,
   type WorkSummary,
@@ -61,6 +63,30 @@ export function mockOrchestration(world: MockWorld, deps: Deps): OrchestrationPa
       (s) =>
         s.role === role && !s.archivedAt && (role === "orchestrator" || s.projectId === projectId),
     );
+  let orchestratorRunsOn = "server";
+  const runsOnChoices = (): RunsOnChoice[] => [
+    {
+      id: "server",
+      label: "The server",
+      state: "connected",
+      ready: true,
+      reason: null,
+      owner: null,
+    },
+    ...world.snapshot.runners
+      .filter((r) => (r.backend === "ssh" || r.backend === "connected") && r.state !== "deleted")
+      .filter((r) => !r.ownerMemberId || r.ownerMemberId === OWNER_MEMBER_ID)
+      .map(
+        (r): RunsOnChoice => ({
+          id: r.id,
+          label: r.label ?? r.id,
+          state: r.state,
+          ready: r.state === "connected",
+          reason: r.state === "connected" ? null : `${r.label ?? r.id} is offline`,
+          owner: r.ownerMemberId ? { id: r.ownerMemberId, name: "You" } : null,
+        }),
+      ),
+  ];
   const ensure = (role: "orchestrator" | "pm", projectId: string | null): Session => {
     const found = roleSession(role, projectId);
     if (found) return found;
@@ -188,6 +214,17 @@ export function mockOrchestration(world: MockWorld, deps: Deps): OrchestrationPa
           payload: { session: archived },
         });
         return delay({ session: ensure(role, projectId), archivedSessionId: current.id });
+      },
+      // Like the server: the server, then the machines the viewer may use, with their state.
+      async runsOn() {
+        return delay({ runsOn: orchestratorRunsOn, choices: runsOnChoices() });
+      },
+      async setRunsOn(runsOn) {
+        if (!runsOnChoices().some((c) => c.id === runsOn)) {
+          throw new Error(`No machine ${runsOn}`);
+        }
+        orchestratorRunsOn = runsOn;
+        return delay({ runsOn, choices: runsOnChoices() });
       },
       projectStatus: (id) => delay(projectStatus(id)),
       overview: () =>

@@ -198,6 +198,8 @@ It's experimental. Start with the software factory on a test repository with aut
 | [Voice and images](docs/voice-and-images.md) | Dictation, read-aloud and image generation |
 | [Usage and costs](docs/usage-and-costs.md) | Reports, budgets and rate limits |
 | [Phones, tablets and network access](docs/remote-access.md) | Using CodeDen from your phone |
+| [Teams](docs/teams.md) | Sharing a server: hosting, invites and roles |
+| [Connected agents](docs/connected-agents.md) | Other agents using CodeDen over MCP, HTTP or the CLI |
 | [Security](docs/security.md) | The security model in detail |
 | [Troubleshooting](docs/troubleshooting.md) | `doctor`, logs and common problems |
 | [Reference](docs/reference.md) | Settings, data folder, command-line options and updates |

@@ -35,6 +35,12 @@ export interface DraftChoice {
   untilChecksPass?: boolean;
   /** Automatic rounds for `untilChecksPass`; absent: the default. */
   checkRounds?: number;
+  /**
+   * Where the session runs instead of the project's setting: `home`, `auto` (Automatic) or a
+   * machine's label.
+   * Absent or null: the project setting (nothing is sent).
+   */
+  machine?: string | null;
 }
 
 export const emptyChoice: DraftChoice = {
@@ -70,6 +76,11 @@ export interface DraftDefaults {
   agent: DefaultAgent | null;
   /** Settings → Autonomy default. */
   defaultAutonomy: AutonomyLevel;
+  /**
+   * The machine labels the draft may place the session on (`machineChoices`); empty or absent
+   * when it can't choose, and then the project setting decides.
+   */
+  machines?: readonly string[];
 }
 
 /** The draft's choice with its defaults filled in: what the pickers show and the start sends. */
@@ -89,6 +100,11 @@ export interface ResolvedDraft {
    * isn't a git repository (no worktree can be made there).
    */
   workspace: "worktree" | "repo_root";
+  /**
+   * `StartSessionRequest.machine`: `home`, `auto` or a machine's label; null leaves it to the
+   * project.
+   */
+  machine: string | null;
 }
 
 /** Why a project whose folder isn't a git repository gets no worktree (as the server says). */
@@ -142,7 +158,46 @@ export function resolveDraftChoice(choice: DraftChoice, defaults: DraftDefaults)
     untilChecksPass: (choice.untilChecksPass ?? false) && autonomy !== "read_only",
     checkRounds: choice.checkRounds ?? DEFAULT_CHECK_ROUNDS,
     workspace: project?.isGitRepo === false ? "repo_root" : "worktree",
+    machine: draftMachine(choice.machine, defaults.machines ?? []),
   };
+}
+
+/**
+ * The machines a project's New session draft may pick from: every machine's label for an agent
+ * session in a GitHub project that doesn't run in Docker; none otherwise (no picker shows).
+ */
+export function machineChoices(
+  project: PlaceableProject | undefined,
+  labels: readonly string[],
+): string[] {
+  return canPlaceOnMachines(project) ? [...labels] : [];
+}
+
+type PlaceableProject = { kind: string; execution?: { backend: string } | null };
+
+/** A project whose agent sessions may be placed on a machine: on GitHub, not run in Docker. */
+export function canPlaceOnMachines(project: PlaceableProject | undefined): boolean {
+  return Boolean(project && project.kind === "github" && project.execution?.backend !== "docker");
+}
+
+/**
+ * The placement the draft sends: `home`, `auto`, or a machine still offered. A machine that was removed,
+ * or a draft that can't choose, falls back to the project setting (null).
+ */
+export function draftMachine(
+  picked: string | null | undefined,
+  offered: readonly string[],
+): string | null {
+  if (!picked || offered.length === 0) return null;
+  return picked === "home" || picked === "auto" || offered.includes(picked) ? picked : null;
+}
+
+/**
+ * The same start on Home, after automatic placement found no free machine (`no_machine`): the
+ * request as it was, with `machine: "home"`.
+ */
+export function startOnHome(request: StartSessionRequestInit): StartSessionRequestInit {
+  return { ...request, machine: "home" };
 }
 
 /**
@@ -178,6 +233,7 @@ export function buildStartRequest(
     ...(resolved.model ? { model: resolved.model } : {}),
     ...(resolved.effort ? { effort: resolved.effort } : {}),
     ...(key ? { workKey: key } : {}),
+    ...(resolved.machine ? { machine: resolved.machine } : {}),
     // A git project leaves it to the server (a new worktree); a folder that isn't one says so.
     ...(resolved.workspace === "repo_root" ? { workspace: { mode: "repo_root" as const } } : {}),
   };

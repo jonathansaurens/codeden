@@ -32,6 +32,7 @@ const SENDERS: Readonly<Record<Exclude<MessageSender, "user">, string>> = {
   pm: "the project manager",
   orchestrator: "the orchestrator",
   codeden: "CodeDen",
+  member: "a connected agent",
 };
 
 /** Who sent a message, as a transcript line names them. */
@@ -42,6 +43,7 @@ const SPEAKERS: Readonly<Record<MessageSender, string>> = {
   pm: "PM",
   orchestrator: "Orchestrator",
   codeden: "CodeDen",
+  member: "Connected agent",
 };
 
 /** What a handoff's brief is written from: the source session and its transcript. */

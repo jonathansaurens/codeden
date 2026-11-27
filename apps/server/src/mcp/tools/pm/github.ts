@@ -42,6 +42,7 @@ export const triageIssue = defineTool({
   description:
     "Record a triage decision on an issue: ready, needs_info, unsafe, out_of_scope or duplicate, with labels to add or remove and an optional comment (close: true for out of scope or duplicates). Follow the project's policy. When you can't decide, choose needs_info (ask the author the specific questions in the comment) or unsafe (it needs a human decision); don't wait on the user.",
   roles: ["pm"],
+  authority: { need: "operator", action: "triage issues" },
   scope: "project",
   isAvailable: inGithubProject,
   input: z.object({
@@ -62,6 +63,7 @@ export const createIssue = defineTool({
   description:
     "Create a GitHub issue in this project (for planned work: include a work key and acceptance criteria in the body).",
   roles: ["pm"],
+  authority: { need: "operator", action: "file issues" },
   scope: "project",
   isAvailable: inGithubProject,
   input: z.object({

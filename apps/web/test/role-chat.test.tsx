@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RoleChat, roleDraftKey } from "@/components/orchestration/role-chat";
 import type { CodeDenClient } from "@/lib/api/client";
@@ -76,6 +77,16 @@ beforeEach(() => {
 });
 
 describe("RoleChat before the role session exists", () => {
+  it("offers Runs on… for the orchestrator before its first message", async () => {
+    const user = userEvent.setup();
+    renderWithClient(
+      <RoleChat kind="orchestrator" projectId={null} empty={() => null} />,
+      freshInstall(),
+    );
+    await user.click(await screen.findByRole("button", { name: "More" }));
+    expect(await screen.findByText("Runs on…")).toBeTruthy();
+  });
+
   it("offers dictation with its shortcut, in the language from Settings", async () => {
     renderWithClient(
       <RoleChat kind="pm" projectId="p-storefront" empty={() => null} />,

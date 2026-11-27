@@ -97,15 +97,19 @@ describe("plan mode through a real runner (Fake provider)", () => {
 
   it("refuses plan mode, on or off, for a role session", async () => {
     for (const planMode of [false, true]) {
-      const res = await h.api("POST", "/sessions", {
-        projectId: h.projectId,
-        role: "pm",
-        provider: "fake",
-        planMode,
-        purpose: `PM ${Math.random()}`,
+      // Role sessions start from their chats, never from `POST /api/sessions`: the service.
+      const start = h.server.services.sessions.start(
+        StartSessionRequest.parse({
+          projectId: h.projectId,
+          role: "pm",
+          provider: "fake",
+          planMode,
+          purpose: `PM ${Math.random()}`,
+        }),
+      );
+      await expect(start, String(planMode)).rejects.toMatchObject({
+        code: "plan_mode_unsupported",
       });
-      expect(res.status, String(planMode)).toBe(400);
-      expect(res.body).toMatchObject({ error: { code: "plan_mode_unsupported" } });
     }
   });
 

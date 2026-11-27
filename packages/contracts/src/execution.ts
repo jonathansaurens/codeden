@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Id } from "./common";
+import { MachineLabel } from "./machines";
 
 /**
  * Execution backends (`docs/remote-runners.md` §5): where a project's agent sessions run. The
@@ -12,14 +13,25 @@ import { Id } from "./common";
  * - `local`: worktrees on this machine, run by the home runner (the default);
  * - `docker`: a container of its own per session, with the whole runner inside, cloning the
  *   repository there. Experimental: GitHub projects only, and only providers that need no
- *   credentials (`ProviderCapabilities.credentialFree`) until credentials reach containers.
+ *   credentials (`ProviderCapabilities.credentialFree`) until credentials reach containers;
+ * - `ssh`: on a machine reached over SSH (`execution.machine` names it), with the machine's own
+ *   provider logins. GitHub projects only (`docs/machines-teams-and-agents.md` §A.4).
  */
-export const ProjectExecutionBackend = z.enum(["local", "docker"]);
+export const ProjectExecutionBackend = z.enum(["local", "docker", "ssh"]);
 export type ProjectExecutionBackend = z.infer<typeof ProjectExecutionBackend>;
+
+/**
+ * Which machine an `ssh` project's sessions run on: a machine's label, or `auto` (automatic
+ * placement on Home or the machine with the most free capacity, §A.5).
+ */
+export const MachineTarget = z.union([z.literal("auto"), MachineLabel]);
+export type MachineTarget = z.infer<typeof MachineTarget>;
 
 /** A project's execution settings. Defaults to `local`, so projects from before it still parse. */
 export const ProjectExecution = z.object({
   backend: ProjectExecutionBackend.default("local"),
+  /** With backend `ssh`: the machine. Absent or null otherwise. */
+  machine: MachineTarget.nullable().optional(),
 });
 export type ProjectExecution = z.infer<typeof ProjectExecution>;
 

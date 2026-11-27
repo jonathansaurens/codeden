@@ -85,7 +85,11 @@ function expectFullSchema(file: string): void {
       "created_at",
       "last_seen_at",
       "last_error",
+      "label",
+      "weight",
+      "owner_member_id",
     ]);
+    expect(tables).toContain("machine_credentials");
     const applied = (
       database.client.prepare("SELECT name FROM __drizzle_migrations").all() as { name: string }[]
     ).map((m) => m.name);
@@ -367,7 +371,13 @@ describe("migrations", { timeout: 30_000 }, () => {
     const file = join(tempDir(), "one-runner.db");
     const old = openDatabase(
       file,
-      partialMigrations((n) => !n.endsWith("_runners")),
+      // Without the runners table, and so without the migrations that alter it.
+      partialMigrations(
+        (n) =>
+          !n.endsWith("_runners") &&
+          !n.endsWith("_machines") &&
+          !n.endsWith("_connected_computers"),
+      ),
     );
     old.client
       .prepare(

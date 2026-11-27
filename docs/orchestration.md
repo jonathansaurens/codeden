@@ -1,10 +1,10 @@
 # Orchestration
 
-CodeDen runs three kinds of agent: one **orchestrator**, one **project manager (PM)** per project, and any number of **agent sessions**. They're all ordinary agent sessions on Claude Code, Codex, OpenCode, Cursor or Gemini CLI; what differs is their role, system prompt, working directory and tools.
+CodeDen runs three kinds of agent: an **orchestrator** for each person, one **project manager (PM)** per project, and any number of **agent sessions**. They're all ordinary agent sessions on Claude Code, Codex, OpenCode, Cursor or Gemini CLI; what differs is their role, system prompt, working directory and tools.
 
 | Role | How many | Works in | Can edit code? | Purpose |
 |---|---|---|---|---|
-| Orchestrator | 1 | `~/.codeden/orchestrator/` | No | Your front door: creates and configures projects, routes requests to PMs, summarises status across projects |
+| Orchestrator | 1 per person | `~/.codeden/orchestrator/` (another person's: `orchestrator/<member id>`) | No | Your front door: creates and configures projects, routes requests to PMs, summarises status across projects |
 | Project manager | 1 per project | The project root, read-only | No | Triages issues, plans work, starts and steers agent sessions, reviews results, escalates to you |
 | Agent | Many | Its own worktree and branch | Yes | Does the work: code, tests, PRs, evidence |
 
@@ -15,6 +15,8 @@ The orchestrator and PMs run **read-only**: Claude gets no edit tools and a poli
 When you choose another provider there, the current orchestrator or PM conversation is retired (stopped and archived) and your next message starts a fresh one on the new provider. Messages that were still waiting in the old conversation's queue (yours, tasks the orchestrator handed a PM, and its questions to a PM, which still get their answer) move to the new one in the same order, and it then starts right away instead of waiting for your next message. A conversation with a turn running, or waiting on your approval or answer, is left to finish: it is retired with the first message or wake after that turn has ended, and its chat shows the old conversation until then. Going back to **Auto** keeps the conversation where it is. Project notes, scheduled wake-ups, updates not yet delivered, the status digest and the work in progress carry over. The old conversation's history doesn't, and its failed-run items leave the inbox.
 
 Only a change of that role setting moves them. Changing a project's **Default agent** (or `defaultProvider` in `.codeden/project.json`) leaves the project's PM conversation where it is; it decides where the PM's next fresh conversation starts. Nothing is retired while the runner is restarting, or while it doesn't have the provider you chose: the conversation moves at its next message or wake once the provider is there. If the new conversation can't be started, the old one is kept with its waiting messages. A setting that already named another provider before CodeDen could move them takes effect when you next change it (choose another provider, then the one you want).
+
+**Where they run.** The orchestrator and PMs run on the server unless their owner chooses a machine: your orchestrator's chat ⋯ menu › **Runs on…**, a project's **PM runs on** in its settings (Owners). They're never placed automatically. On a machine they use that machine's provider sign-ins, stay read-only, and the PM reads the project's clone there, fetched before each turn. Changing it moves the conversation like a provider change (below); when the machine can't take a turn, that turn runs on the server in a fresh conversation and the chat says why, and the role moves back once the machine can. See [machines.md](machines.md#where-the-orchestrator-and-pms-run).
 
 **Starting a conversation over.** The orchestrator's and each PM's chat is one long conversation. When it has grown hard to read or carries stale context, choose **Start fresh…** in the chat's ⋯ menu. After you confirm, the current conversation is archived and a new, empty one starts on the provider and model set in **Settings → Providers → Defaults per role** (so it is also a way out of a provider that keeps failing). Project notes, scheduled wake-ups, updates not yet delivered, open inbox items and the work the PM started carry over; the old history doesn't, and nothing is deleted. Start fresh waits while a turn is running or a question or approval is open: the menu says which. The earlier conversation stays readable but can't be continued; open it from the toast, from search, or, for a PM, from the project's **Archived** sessions. The same holds for a conversation retired by a provider change.
 
@@ -33,7 +35,7 @@ Only a change of that role setting moves them. Changing a project's **Default ag
 
 ## Talking to them
 
-- **Orchestrator:** pinned at the top of the sidebar (**Alt+O**). Try "What's going on across my projects?", "Create a project for C:\code\api", or "Ask the storefront PM to look at issue 12".
+- **Orchestrator:** pinned at the top of the sidebar (**Alt+O**). On a server shared by a [team](teams.md), everyone has their own: the sidebar opens yours, and nobody else, not even an Owner, can read it. Try "What's going on across my projects?", "Create a project for C:\code\api", or "Ask the storefront PM to look at issue 12".
 - **PM:** under each project in the sidebar, or **Talk to the PM** on the project page.
 
 Both chats show the role badge, the model, the running cost and a **Read-only** marker in the header.
@@ -117,16 +119,34 @@ Agents see only the tools for their role; everything else isn't listed at all. T
 
 Factory projects add a few more (see [The software factory and the dark factory](software-factory.md)).
 
+### Whose role they act with
+
+On a server shared by a [team](teams.md), the orchestrator and the PMs act with the role of the people they work for, checked by the same rules as those people's own requests:
+
+- **A turn acts for the people whose messages started it** (and anyone who steered it): the lowest role among them counts. A message the orchestrator sends a PM counts as from the person the orchestrator works for. A turn only automatic events started (notices, wake-ups, automations, GitHub) acts as an Owner of the project, as before; a notice about a session a person started counts as from that person.
+- **What needs which role:** adding and changing projects and creating, changing, pausing, resuming or skipping automations need an Owner; messaging a PM, starting, messaging and stopping sessions, running automations, answering questions, filing and triaging issues and the factory's decisions need an Operator on the project. A refused call tells the agent which role it needs ("Only an Owner can change automations; this turn acts for Otto (an Operator)"), and it tells you instead of trying again.
+- **What the orchestrator sees** leaves out the projects hidden from its person: its project list, overview, inbox and status digest.
+
+A single-user install has one person, the first owner, so nothing changes there.
+
+### Everyone's own orchestrator
+
+Each person on a team has an orchestrator of their own, started by their first message to it. It always acts with its person's role, and its chat, transcript, search results, notices and wake-ups are theirs alone. Connected agents have none: they message PMs directly.
+
+- **Answers come back to whoever asked.** A PM's answer to an `ask_pm`, its reports in a turn an orchestrator's message started, and the results of work it started for an orchestrator (`reportTo: "orchestrator"`) go to that orchestrator only.
+- **Anything else a PM reports** (a `message_orchestrator` nobody asked for, the factory digest) goes to the orchestrator of every Owner of the project. Informational reports never wake one, as before.
+- **When a member is deleted** their orchestrator is retired: stopped and archived, its transcript kept, and nobody else can open it.
+
 ### Asking and answering
 
 - **Defaults first.** Agents, PMs and the orchestrator decide routine details themselves (naming, approach, scope, provider and model), say what they assumed so you can override it, and keep going. They ask you only for destructive or irreversible steps, spending money or credentials, outward-facing actions (publishing, releases, deploys, messages to people), protected areas, or a request that can be read two very different ways.
 - **Commits and pull requests.** An agent in its own worktree commits as it goes without asking. It opens a pull request by itself when a PM or an automation started it; in a session you started, it opens one when you ask and otherwise offers it as a suggested follow-up. An agent working in your checkout instead of a worktree doesn't commit unless you ask.
-- **`ask_pm`** (orchestrator → PM) waits up to 3 minutes for the PM's answer; a later answer arrives as a message.
+- **`ask_pm`** (orchestrator → PM) waits up to 3 minutes for the PM's answer; a later answer arrives as a message. CodeDen keeps track of each question it hands a PM, and only the PM's turn that received it from CodeDen answers it: a question's marker copied into someone's own message to the PM answers nothing. A server restart forgets the questions still open, so their late answers aren't delivered (the orchestrator can ask again).
 - **`message_orchestrator`** with `informational: true` never wakes the orchestrator; it shows in its next digest.
 - **`ask_user`** (agent or PM → you) puts a question card in the transcript and the inbox. The tool waits up to 4 minutes; if you haven't answered, the agent is told to finish what it can, and your later answer is sent to the session as a new message. This works the same on every provider.
 - **`answer_question`** (PM → agent): a question from work the PM, the orchestrator or an automation started wakes the PM first. When the brief, its notes or the vision settle it, the PM answers it; the agent carries on and the inbox item closes as answered by the PM. Approvals, MCP servers' forms (their answers go to an external tool as data), and questions from sessions you started, always wait for you.
 - **`schedule_wakeup`** (orchestrator or PM → itself): wake me in N minutes, or at a time up to 7 days ahead, with a note. When it's due, CodeDen wakes them with the note and the usual status digest, so they can check on work or try again later without you prompting them. Wake-ups survive restarts; `list_wakeups` and `cancel_wakeup` manage them (at most 20 pending each).
-- **`start_session` with `reportTo: "orchestrator"`** (PM): for work the orchestrator passed on. When the session finishes (calls `finish`) or fails, the orchestrator is woken with the result too, so it can tell you.
+- **`start_session` with `reportTo: "orchestrator"`** (PM): for work the orchestrator passed on. When the session finishes (calls `finish`) or fails, the orchestrator that passed it on is woken with the result too, so it can tell you.
 
 ## The inbox
 

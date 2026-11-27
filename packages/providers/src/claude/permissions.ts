@@ -89,8 +89,8 @@ export class ClaudePolicy {
   denial(toolName: string, input: Record<string, unknown>, dir?: string): string | undefined {
     if (this.isReadOnly && touchesCodeden(this.assess(toolName, input, dir))) {
       return this.readOnly
-        ? "This session is read-only: CodeDen's own home and credential files are off limits. Act through CodeDen tools instead."
-        : "This session has read-only permissions: CodeDen's own home and credential files are off limits. Report what you found instead.";
+        ? "This session is read-only: CodeDen's own home, agent CLIs' transcripts and credential files are off limits. Act through CodeDen tools instead."
+        : "This session has read-only permissions: CodeDen's own home, agent CLIs' transcripts and credential files are off limits. Report what you found instead.";
     }
     // A planning agent writes its plan into Claude's notes folders, at every level (the
     // `read_only` level included). Read-only roles (orchestrator, PMs) never plan.

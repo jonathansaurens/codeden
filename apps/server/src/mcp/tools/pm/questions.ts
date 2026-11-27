@@ -16,6 +16,7 @@ export const answerQuestion = defineTool({
   description:
     "Answer a question one of this project's agent sessions asked (an open inbox item of kind 'question', named in a 'needs input' update), when its brief, your notes, the vision or a sensible default settles it. The agent gets the answer at once (or as its next message) and the inbox item closes as answered by you. Approvals, MCP servers' forms, and questions from sessions the user started, stay with the user.",
   roles: ["pm"],
+  authority: { need: "operator", action: "answer questions" },
   scope: "project",
   alwaysLoad: true,
   input: z.object({

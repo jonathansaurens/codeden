@@ -22,6 +22,7 @@ export function applyOrchestrationProjection(tx: Tx, e: OrchestrationEvent): voi
         createdAt: notice.createdAt,
         deliveredAt: notice.deliveredAt,
         notBefore: notice.notBefore ?? null,
+        memberId: notice.memberId ?? null,
       };
       tx.insert(notices).values(row).onConflictDoUpdate({ target: notices.id, set: row }).run();
       return;

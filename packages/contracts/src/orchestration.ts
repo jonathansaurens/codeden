@@ -55,6 +55,11 @@ const noticeBase = {
    * (`schedule_wakeup`). Absent or null: deliverable at once.
    */
   notBefore: Timestamp.nullable().optional(),
+  /**
+   * On a notice for the orchestrator: whose orchestrator it is for (§D.3), as each person has
+   * their own. Absent: the first owner's.
+   */
+  memberId: Id.optional(),
 };
 
 /** The work a session notice is about. */
@@ -198,6 +203,11 @@ export const Notice = z.discriminatedUnion("type", [
       fromSessionId: Id.nullable(),
       /** The message as the orchestrator wrote it (an `ask_pm` question carries its marker). */
       text: z.string(),
+      /**
+       * The person the orchestrator acts for (`UserInput.onBehalfOf`): the PM's turn that
+       * delivers it acts with their role. Absent on notices stored before it was recorded.
+       */
+      onBehalfOf: Id.optional(),
     }),
   }),
   z.object({

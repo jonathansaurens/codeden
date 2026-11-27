@@ -82,6 +82,7 @@ describe("issue triage (§10)", () => {
       timezone: null,
       agentCiEnv: true,
       execution: { backend: "local" },
+      pmRunsOn: "server",
       pinned: false,
       sortOrder: 0,
       createdAt: ts,

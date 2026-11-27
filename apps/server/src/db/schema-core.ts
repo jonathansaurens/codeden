@@ -1,4 +1,5 @@
 import type {
+  Actor,
   Automation,
   AutomationRun,
   ErrorInfo,
@@ -47,6 +48,8 @@ export const events = sqliteTable(
     type: text("type").notNull(),
     payload: json<unknown>("payload").notNull(),
     ts: text("ts").notNull(),
+    /** The member whose request caused it (§B.4); null for CodeDen's own work. */
+    actor: json<Actor>("actor"),
   },
   (t) => [index("events_session_seq").on(t.sessionId, t.seq), index("events_type").on(t.type)],
 );
@@ -75,9 +78,13 @@ export const projects = sqliteTable(
     /** Agent sessions run with `CI=true` (§4.2); the migration keeps it on for every project. */
     agentCiEnv: integer("agent_ci_env", { mode: "boolean" }).notNull().default(true),
     /** Where new agent sessions run (`Project.execution.backend`); `local` for older projects. */
-    executionBackend: text("execution_backend", { enum: ["local", "docker"] })
+    executionBackend: text("execution_backend", { enum: ["local", "docker", "ssh"] })
       .notNull()
       .default("local"),
+    /** With backend `ssh`: the machine's label (`Project.execution.machine`). */
+    executionMachine: text("execution_machine"),
+    /** Where the project's PM runs (`Project.pmRunsOn`, §D.4): `server` or a machine's id. */
+    pmRunsOn: text("pm_runs_on").notNull().default("server"),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     /** Manual list position (§13); the migration backfills it from the alphabetical order. */
     sortOrder: integer("sort_order").notNull().default(0),
@@ -120,11 +127,17 @@ export const sessions = sqliteTable(
     pr: json<GitHubPrRef>("pr"),
     resumeToken: text("resume_token"),
     runnerId: text("runner_id"),
+    /** Why the session runs where it does, when not where asked (`Session.placementNote`). */
+    placementNote: text("placement_note"),
     automationRunId: text("automation_run_id"),
     rootThreadId: text("root_thread_id"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
     endedAt: text("ended_at"),
+    /** Who stopped it (§B.4), when a member did. */
+    stoppedBy: json<Actor>("stopped_by"),
+    /** An orchestrator's person (`Session.ownerMemberId`); null: the first owner's. */
+    ownerMemberId: text("owner_member_id"),
     archivedAt: text("archived_at"),
     worktreeRemovedAt: text("worktree_removed_at"),
     /** The session this one was forked from, and the checkpoint its worktree started at. */

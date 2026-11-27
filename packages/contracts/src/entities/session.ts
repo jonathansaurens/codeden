@@ -14,6 +14,7 @@ import {
 } from "../common";
 import { Item } from "../items";
 import { McpServerState } from "../mcp-status";
+import { Actor } from "../members";
 import { StartedBy, workFields } from "../work";
 import { SessionResult } from "../workbench";
 
@@ -147,6 +148,12 @@ export const Session = z.object({
   resumeToken: z.string().nullable(),
   /** Runner currently hosting the session. */
   runnerId: z.string().nullable(),
+  /**
+   * Why the session runs where it does when that isn't what was asked for, shown in its header:
+   * "Automatic placement found no free machine (All machines are busy); ran on Home"
+   * (`docs/machines-teams-and-agents.md` §A.5). Absent or null otherwise.
+   */
+  placementNote: z.string().nullable().optional(),
   automationRunId: Id.nullable(),
   /** The session's root thread, once the provider started it. */
   rootThreadId: Id.nullable(),
@@ -176,6 +183,14 @@ export const Session = z.object({
   createdAt: Timestamp,
   updatedAt: Timestamp,
   endedAt: Timestamp.nullable(),
+  /** The member who stopped it (§B.4); absent when CodeDen did, or before members existed. */
+  stoppedBy: Actor.optional(),
+  /**
+   * On an orchestrator session: the person it belongs to (`docs/machines-teams-and-agents.md`
+   * §D.1), who alone sees it. Absent: the first owner's, as every orchestrator before people had
+   * their own.
+   */
+  ownerMemberId: Id.optional(),
 });
 export type Session = z.infer<typeof Session>;
 

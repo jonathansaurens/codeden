@@ -1,6 +1,6 @@
 import type { Session, UserInputInit } from "@codeden/contracts";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, MoreHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { toInputAttachments } from "@/components/composer/attachments";
@@ -13,11 +13,17 @@ import {
 import { MobileNavButton } from "@/components/shell/mobile-nav";
 import { ThreadView } from "@/components/thread/thread-view";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useClient } from "@/lib/api";
 import type { OrchestrationRole } from "@/lib/api/feature-apis";
 import { useProject, useSnapshotData } from "@/lib/queries";
 import { getDraft, useComposerStore } from "@/stores/composer";
 import { ReadOnlyBadge, RoleBadge } from "./role-badge";
+import { RunsOnMenu } from "./runs-on-menu";
 
 /** Composer draft key while the role session does not exist yet. */
 export const roleDraftKey = (role: OrchestrationRole, projectId: string | null) =>
@@ -136,6 +142,24 @@ export function RoleChat({
         </h1>
         <span className="text-2xs text-muted-foreground">Not started</span>
         <ReadOnlyBadge className="ml-auto" />
+        {role === "orchestrator" && (
+          // Where its first conversation starts can be chosen before there is one (§D.4).
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground"
+                aria-label="More"
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              <RunsOnMenu />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {empty(roleDraftKey(role, projectId))}

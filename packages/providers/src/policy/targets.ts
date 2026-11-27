@@ -20,6 +20,7 @@ import {
 } from "./paths";
 import { projectConfigWrite } from "./project-config";
 import { loginRisk, touchesProviderLogin } from "./provider-logins";
+import { touchesProviderTranscripts, transcriptRisk } from "./provider-transcripts";
 import { braceAlternatives } from "./secrets";
 import type { ShellDialect } from "./shell";
 import type { Input } from "./stdin-scripts";
@@ -83,6 +84,9 @@ export function classifyRead(target: string, ctx: RiskContext): RiskAssessment {
   const access = codedenAccess(target, forReading(ctx));
   if (access) return credentialsRisk(`Reads ${CODEDEN_WHAT[access]}: ${target}`);
   if (touchesProviderLogin(target, ctx)) return loginRisk(`Reads an agent CLI's login: ${target}`);
+  if (touchesProviderTranscripts(target, ctx)) {
+    return transcriptRisk(`Reads an agent CLI's transcripts: ${target}`);
+  }
   if (isSecretPath(target)) return risky("secrets", `Reads the secrets file ${target}`);
   return SAFE;
 }

@@ -20,6 +20,7 @@ import { MAX_LOCATIONS, moveTo } from "./locations";
 import { isInside, isSecretPath, resolveAgainst } from "./paths";
 import { projectConfigCommand } from "./project-config";
 import { providerLoginCommand } from "./provider-logins";
+import { providerTranscriptCommand } from "./provider-transcripts";
 import { dotnetWrites } from "./ps-dotnet";
 import {
   codeOf,
@@ -101,6 +102,7 @@ export function classifyCommand(command: string, given: RiskContext): RiskAssess
     const always =
       firstInList(list, ctx, 0, codedenCommand) ??
       firstInList(list, ctx, 0, (cmd, here) => codedenFolderRisk(cmd, here)) ??
+      firstInList(list, ctx, 0, (cmd, here) => providerTranscriptCommand(cmd, here)) ??
       firstInList(list, ctx, 0, (cmd, here) => providerLoginCommand(cmd, here)) ??
       firstInList(list, ctx, 0, (cmd, here) => agentPermissionsCommand(cmd, here));
     found.push(always ?? classifyList(list, ctx, 0));

@@ -28,6 +28,7 @@ import { isProcessAlive } from "./lock";
 import { McpLinkServer } from "./mcp-link";
 import type { RunnerTransport, RunnerTransportHandlers } from "./transport";
 import { type ExecLinkConfig, openExecTransport } from "./transport-exec";
+import type { IncomingLinkConfig } from "./transport-incoming";
 import { findOrStartRunner, openLoopbackTransport } from "./transport-loopback";
 import { UntrustedRunnerGuard } from "./untrusted";
 
@@ -51,9 +52,11 @@ export interface RunnerClientOptions {
   untrusted?: boolean;
   /**
    * Reach the runner through an exec link (`codeden runner-link` next to it, `docs/remote-runners.md`
-   * §6). Without one, the `loopback` transport finds it through `lockFile` (and `launch`).
+   * §6), or an incoming one (a computer that links in with `codeden connect`, §D.5: each connect
+   * waits for its next socket). Without one, the `loopback` transport finds it through
+   * `lockFile` (and `launch`).
    */
-  link?: ExecLinkConfig;
+  link?: ExecLinkConfig | IncomingLinkConfig;
   /** The runner's data directory (loopback: where a started runner lives and logs). */
   home: string;
   /** Loopback: the runner's lock file. */
@@ -62,6 +65,11 @@ export interface RunnerClientOptions {
   store: EventStore;
   /** Loopback: how to start a runner when none is live; `null` only attaches to one. */
   launch: RunnerLaunchConfig | null;
+  /**
+   * Drain a runner of another version even without `launch`: its link starts a current one
+   * when it exits (a machine's runner, `docs/machines-teams-and-agents.md` §A.2).
+   */
+  replaceOnMismatch?: boolean;
   /** Called on every connection status change. */
   onStatus?: (status: RunnerConnectionStatus) => void;
   /** Ephemeral stream data (terminal output, browser frames). */
@@ -160,6 +168,7 @@ export class RunnerClient {
   private proxyUrl: string | null = null;
   private runnerPid: number | undefined;
   private where: RunnerHostInfo | null = null;
+  private refusedId: string | null = null;
   private current: RunnerConnectionStatus = {
     state: "starting",
     runnerId: null,
@@ -182,6 +191,14 @@ export class RunnerClient {
   /** Agent-facing MCP proxy URL on the runner, once configured. */
   get mcpProxyUrl(): string | null {
     return this.proxyUrl;
+  }
+
+  /**
+   * The journal id of the last `welcome` refused (`journalIdRefusal`), until one is accepted:
+   * a machine whose CodeDen data was wiped comes back under a new id.
+   */
+  get refusedJournalId(): string | null {
+    return this.refusedId;
   }
 
   /** Where the runner runs, from its last `welcome`; null before one (or from older runners). */
@@ -335,6 +352,7 @@ export class RunnerClient {
             if (welcomed) return; // one handshake per connection
             // Refused: the connect loop shows the reason as the last error and retries.
             const refused = this.welcomeRefusal(msg);
+            this.refusedId = refused ? msg.runnerId : null;
             if (refused) return void settle(new Error(refused));
             welcomed = true;
           } else if ((msg.type === "event" || msg.type === "stream") && !welcomed) {
@@ -381,6 +399,12 @@ export class RunnerClient {
     signal: AbortSignal,
   ): Promise<RunnerTransport> {
     const link = this.opts.link;
+    if (link?.kind === "incoming") {
+      // Nothing to dial: wait for the computer to link in (it may be asleep for hours).
+      if (this.current.state === "starting")
+        this.setStatus({ ...this.current, state: "disconnected" });
+      return link.accept(handlers, signal);
+    }
     if (link) return openExecTransport(link, handlers);
     const lock = await findOrStartRunner({
       home: this.opts.home,
@@ -524,7 +548,9 @@ export class RunnerClient {
    */
   private afterHandshake(msg: RunnerWelcome): void {
     const log = this.opts.log;
-    const mismatch = msg.runnerVersion !== CODEDEN_VERSION && this.opts.launch !== null;
+    const mismatch =
+      msg.runnerVersion !== CODEDEN_VERSION &&
+      (this.opts.launch !== null || this.opts.replaceOnMismatch === true);
     // The proxy tunnels over this connection, or forwards to the server's loopback `/mcp`.
     const mcpUpstreamUrl = this.opts.mcpLink ? null : this.opts.mcpUpstreamUrl;
     const configured =

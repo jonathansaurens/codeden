@@ -16,6 +16,11 @@ export const StartedBy = z.object({
    * request the orchestrator passed on (§8.2), so the result reaches whoever asked for it.
    */
   reportTo: z.literal("orchestrator").optional(),
+  /**
+   * With `reportTo`: the people whose orchestrators passed the request on (§D.3); only theirs
+   * hear. Absent: the orchestrators of the project's Owners.
+   */
+  reportToMembers: z.array(Id).optional(),
 });
 export type StartedBy = z.infer<typeof StartedBy>;
 

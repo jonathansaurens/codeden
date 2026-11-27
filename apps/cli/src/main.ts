@@ -7,7 +7,11 @@
  *   codeden password [--generate]
  *   codeden network [on [--loopback-only]|off]
  *   codeden network origin add|remove|list [<https-url>]
+ *   codeden machines list|add|remove
+ *   codeden connect [<server> --code <code>] [--detach] [--stop] [--home <dir>]
+ *   codeden runner --home <dir> --detach [--backend <id>] [--fake]
  *   codeden runner-link [--home <dir>]
+ *   codeden --server <url> --token <token> <command> [--key value …]
  * Loaded by `cli.ts` once the launcher has picked the version to run. Kept light: the server
  * code (`commands.ts`) loads only for the commands that need it, never for `runner-link`.
  */
@@ -39,6 +43,11 @@ async function runnerLinkCommand(home: string, extraArgs: boolean): Promise<numb
 
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
+  // A CodeDen server elsewhere: its member tools over HTTP (§C.2), nothing local is started.
+  if (args.some((a) => a === "--server" || a.startsWith("--server="))) {
+    const { runRemoteCommand } = await import("./remote-command");
+    return runRemoteCommand(args);
+  }
   let parsed: ParsedCli;
   try {
     parsed = parseCli(args);

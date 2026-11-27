@@ -1,6 +1,7 @@
 import type { Role, ToolContext, ToolScope } from "@codeden/contracts";
 import type { z } from "zod";
 import type { AppServices } from "../services/container";
+import type { ToolNeed } from "./authority";
 
 /** What a tool handler gets: the caller (from its token) plus the application services. */
 export type ServerToolContext<S extends ToolScope = ToolScope> = ToolContext<S> & {
@@ -37,6 +38,11 @@ export interface ServerTool<TInput extends z.ZodType = z.ZodType, S extends Tool
     services: AppServices,
     caller?: ToolAvailabilityContext,
   ) => Promise<Record<string, string>>;
+  /**
+   * The role an orchestrator's or a PM's turn needs to call it (§D.2), checked before the
+   * handler runs against the people the turn acts for. Absent: anyone the tool is listed for.
+   */
+  authority?: ToolNeed<z.output<TInput>>;
   /** Returns text (or a JSON-serialisable value) for the agent. */
   handler: (input: z.output<TInput>, ctx: ServerToolContext<S>) => Promise<unknown>;
 }

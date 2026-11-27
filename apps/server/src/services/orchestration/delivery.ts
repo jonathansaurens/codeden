@@ -14,6 +14,7 @@ import type { DecoratedInput } from "../sessions/input-decorator";
 import type { NoticeCards } from "./cards";
 import { renderNotices } from "./digest";
 import type { NoticeStore } from "./notices";
+import { personKey, wakeKey } from "./role-keys";
 import type { WakeScheduler } from "./wake-scheduler";
 
 export interface NoticeDeliveryDeps {
@@ -43,7 +44,9 @@ export function wakesTarget(n: Notice): boolean {
 }
 
 const keyOf = (session: Session) =>
-  session.role === "pm" ? `pm:${session.projectId}` : "orchestrator";
+  session.role === "pm"
+    ? wakeKey("pm", session.projectId)
+    : wakeKey("orchestrator", null, session.ownerMemberId);
 
 /**
  * Getting notices to the orchestrator and the PMs (§8.2) reliably:
@@ -62,8 +65,11 @@ export class NoticeDelivery {
 
   constructor(private readonly deps: NoticeDeliveryDeps) {}
 
-  /** Prepend the status digest and the undelivered notices to a role session's input (§8.4). */
-  decorate(session: Session, input: UserInput): DecoratedInput {
+  /**
+   * Prepend the status digest and the undelivered notices to a role session's input (§8.4).
+   * `notices` are the ones the turn carries.
+   */
+  decorate(session: Session, input: UserInput): DecoratedInput & { notices?: Notice[] } {
     if (session.role === "agent") return { input };
     try {
       const parts = [this.deps.digestFor(session)];
@@ -71,6 +77,7 @@ export class NoticeDelivery {
         .undelivered(
           session.role === "pm" ? "pm" : "orchestrator",
           session.role === "pm" ? session.projectId : null,
+          personKey(session.ownerMemberId),
         )
         .filter((n) => !this.claimed.has(n.id));
       parts.push(...(pending.length > 0 ? [renderNotices(pending, this.deps.projectName)] : []));
@@ -83,6 +90,7 @@ export class NoticeDelivery {
       };
       return {
         input: { ...input, text: parts.join("\n\n") },
+        notices: pending,
         delivered: () => {
           release();
           this.deps.notices.markDelivered(ids);
@@ -100,8 +108,10 @@ export class NoticeDelivery {
 
   /** Wake every target whose wake-worthy notices are still undelivered (server start). */
   rearm(): void {
-    if (this.deps.notices.undelivered("orchestrator", null).some(wakesTarget)) {
-      this.deps.wakes.request("orchestrator");
+    for (const person of this.deps.notices.orchestratorsWaiting()) {
+      if (this.deps.notices.undelivered("orchestrator", null, person).some(wakesTarget)) {
+        this.deps.wakes.request(wakeKey("orchestrator", null, person));
+      }
     }
     for (const id of this.deps.projectIds()) {
       if (this.deps.notices.undelivered("pm", id).some(wakesTarget)) {

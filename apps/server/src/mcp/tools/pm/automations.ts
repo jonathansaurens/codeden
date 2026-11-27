@@ -44,6 +44,7 @@ export const runAutomation = defineTool({
   description:
     "Run one of this project's automations now (even if it is disabled or paused). If matching work is already running or queued, nothing starts and the result is 'conflict' with the existing work: choose the resolution yourself and call again with conflict = {resolution: 'wait'}, {resolution: 'skip'}, {resolution: 'join', sessionId} or {resolution: 'force', reason}.",
   roles: ["pm"],
+  authority: { need: "operator", action: "run automations" },
   scope: "project",
   input: z.object({
     automationId: z.string().min(1),
@@ -59,6 +60,7 @@ export const reportTriage = defineTool({
   description:
     "After classifying a new issue and applying labels/comment with triage_issue, report the decision. For 'ready' issues CodeDen then either starts an agent session (when the project's triage policy allows it) or asks the user 'Should I take this on?' in the inbox. Do not call start_session for triaged issues yourself.",
   roles: ["pm"],
+  authority: { need: "operator", action: "triage issues" },
   scope: "project",
   isAvailable: inGithubProject,
   input: TriageReport,

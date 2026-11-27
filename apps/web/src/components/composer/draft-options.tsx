@@ -4,6 +4,7 @@ import { type DraftChoice, pickModel, type ResolvedDraft } from "@/lib/new-sessi
 import { ChecksToggle } from "./checks-toggle";
 import { ModelPicker } from "./model-picker/model-picker";
 import { AutonomyPicker, PlanToggle } from "./pickers";
+import { RunsOnPicker } from "./runs-on-picker";
 import { WorkspacePicker } from "./workspace-picker";
 
 /**
@@ -14,7 +15,9 @@ import { WorkspacePicker } from "./workspace-picker";
  * with `planMode` (elsewhere Plan stays, disabled with the reason, and the draft keeps the choice
  * for a provider that can plan). "Keep going until checks pass" shows when the project has checks
  * (`checks`) and the permissions let the agent fix things. A project folder that isn't a git
- * repository shows where the session runs instead of a worktree (`WorkspacePicker`).
+ * repository shows where the session runs instead of a worktree (`WorkspacePicker`). With
+ * `machines` (a GitHub project that doesn't run in Docker, once machines exist), "Runs on" picks
+ * Home or a machine for this session instead of the project's setting.
  */
 export function DraftOptions({
   providers,
@@ -23,6 +26,8 @@ export function DraftOptions({
   checks,
   projectId,
   projectPath,
+  machines = [],
+  projectSetting = "",
   onChange,
 }: {
   providers: ProviderInfo[];
@@ -34,10 +39,22 @@ export function DraftOptions({
   projectId: string;
   /** The project folder, named where the session runs in it. */
   projectPath: string;
+  /** Machine labels the session may be placed on (`machineChoices`); empty hides "Runs on". */
+  machines?: readonly string[];
+  /** Where the project's setting runs sessions, for "Runs on". */
+  projectSetting?: string;
   onChange: (next: DraftChoice) => void;
 }) {
   const { provider } = resolved;
   const workspace = resolved.workspace === "repo_root" && <WorkspacePicker path={projectPath} />;
+  const runsOn = machines.length > 0 && (
+    <RunsOnPicker
+      value={resolved.machine}
+      machines={machines}
+      projectSetting={projectSetting}
+      onChange={(machine) => onChange({ ...choice, machine })}
+    />
+  );
   if (!provider) {
     return (
       <>
@@ -49,6 +66,7 @@ export function DraftOptions({
   return (
     <>
       {workspace}
+      {runsOn}
       <ModelPicker
         providers={providers}
         projectId={projectId}

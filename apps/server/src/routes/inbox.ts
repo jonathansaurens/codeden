@@ -5,6 +5,7 @@ import {
   RestoreInboxRequest,
 } from "@codeden/contracts";
 import { Hono } from "hono";
+import { asAnswered } from "../members/attribution";
 import type { AppServices } from "../services/container";
 import { retryRunFailed } from "../services/inbox-retry";
 import { jsonBody, queryOf } from "./validate";
@@ -26,9 +27,12 @@ export function inboxRoutes(s: AppServices) {
       c.json(s.inbox.restoreMany(c.req.valid("json").ids)),
     )
     .get("/:id", (c) => c.json(s.inbox.get(c.req.param("id"))))
-    .post("/:id/resolve", jsonBody(ResolveInboxRequest), async (c) =>
-      c.json(await s.inbox.resolve(c.req.param("id"), c.req.valid("json"))),
-    )
+    .post("/:id/resolve", jsonBody(ResolveInboxRequest), async (c) => {
+      const req = c.req.valid("json");
+      // Who decided is the server's to say, never the client's.
+      const own = req.response ? { ...req, response: asAnswered(req.response) } : req;
+      return c.json(await s.inbox.resolve(c.req.param("id"), own));
+    })
     .post("/:id/retry", async (c) => {
       const item = await retryRunFailed(
         {

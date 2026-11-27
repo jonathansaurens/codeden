@@ -10,6 +10,12 @@ import { currentBranch, defaultBranch } from "../git/ops";
 import type { ProcessSupervisor } from "../process/supervisor";
 import { endProcessesInside } from "../process/worktree-processes";
 import { prepareClone } from "./clone";
+import {
+  ensureProjectClone,
+  homeFolder,
+  projectCloneBase,
+  projectRootClone,
+} from "./project-clone";
 import { PROJECT_CONFIG_PATH, readProjectConfig } from "./project-config";
 import { pruneWorktrees, removeWorkspace, worktreeState } from "./removal";
 import { runSetup, type SetupStep } from "./setup";
@@ -191,7 +197,7 @@ export async function prepareWorkspace(
   cmd: RunnerCommandOf<"workspace.prepare">,
   ctx: WorkspaceContext,
 ): Promise<RunnerCommandResult<"workspace.prepare">> {
-  let target: { cwd: string; branch: string | null; created: boolean };
+  let target: { cwd: string; branch: string | null; created: boolean; repoPath?: string };
   switch (cmd.strategy) {
     case "repo_root": {
       const repoPath = repoPathOf(cmd);
@@ -220,7 +226,14 @@ export async function prepareWorkspace(
       break;
     }
     case "clone":
-      target = await prepareClone(cmd, ctx.home, sessionShort(cmd.sessionId));
+      target = !cmd.perProject
+        ? await prepareClone(cmd, ctx.home, sessionShort(cmd.sessionId))
+        : cmd.projectRoot
+          ? await projectRootClone(cmd, ctx.home)
+          : await projectWorktree(cmd, ctx);
+      break;
+    case "folder":
+      target = await homeFolder(cmd, ctx.home);
       break;
   }
 
@@ -254,6 +267,35 @@ export async function prepareWorkspace(
     setup,
     heldSetup: { commands: project, ...(await lastChange(target.cwd)) },
   };
+}
+
+/**
+ * `clone` with `perProject` (§A.4): fetch the project's shared clone, then make (or reuse) the
+ * session's worktree of it as for a local project. The brokered credential goes to the clone's
+ * fetch only; the worktree is made from what that fetched.
+ */
+async function projectWorktree(
+  cmd: RunnerCommandOf<"workspace.prepare">,
+  ctx: WorkspaceContext,
+): Promise<{ cwd: string; branch: string | null; created: boolean; repoPath: string }> {
+  if (cmd.restoreCheckpoint) {
+    throw new CommandError("unsupported", "A cloned workspace can't start from a checkpoint yet");
+  }
+  const repoPath = await ensureProjectClone(cmd, ctx.home);
+  const baseRef = await projectCloneBase(repoPath, cmd);
+  const { newBranch: _n, ...made } = await createWorktree(
+    {
+      ...cmd,
+      strategy: "worktree",
+      repoPath,
+      path: undefined,
+      baseRef,
+      fetch: false,
+      credential: undefined,
+    },
+    ctx,
+  );
+  return { ...made, repoPath };
 }
 
 /** Whether a person has seen this setup (`seenSetups`; none given: no gate). */

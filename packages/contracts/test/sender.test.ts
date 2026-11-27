@@ -82,8 +82,13 @@ describe("message senders", () => {
     const input = roundTrip(UserInput, {
       ...messageFrom("orchestrator", "Fix #4"),
       relayedForUser: true,
+      onBehalfOf: "m-olive",
     });
-    expect(input).toMatchObject({ from: "orchestrator", relayedForUser: true });
+    expect(input).toMatchObject({
+      from: "orchestrator",
+      relayedForUser: true,
+      onBehalfOf: "m-olive",
+    });
     const queued = roundTrip(QueuedMessage, {
       id: "q1",
       sessionId: "s1",
@@ -92,7 +97,9 @@ describe("message senders", () => {
       createdAt: ts,
     });
     expect(queued.input.relayedForUser).toBe(true);
+    expect(queued.input.onBehalfOf).toBe("m-olive");
     expect(UserInput.parse({ text: "hi" }).relayedForUser).toBeUndefined();
+    expect(UserInput.parse({ text: "hi" }).onBehalfOf).toBeUndefined();
   });
 
   it("rejects an unknown sender", () => {

@@ -40,7 +40,7 @@ describe("execution backends", () => {
     expect(Project.safeParse({ ...sampleProject, execution: { backend: "vm" } }).success).toBe(
       false,
     );
-    expect(ProjectExecutionBackend.options).toEqual(["local", "docker"]);
+    expect(ProjectExecutionBackend.options).toEqual(["local", "docker", "ssh"]);
   });
 
   it("is changed through the project update request", () => {

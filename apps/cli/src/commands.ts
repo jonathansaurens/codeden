@@ -13,11 +13,15 @@ import {
   startServer,
 } from "@codeden/server";
 import { DEFAULT_PORT, HELP, type ParsedCli } from "./args";
+import { connectCommand } from "./connect-command";
+import { connectHome } from "./connect-file";
 import { doctor } from "./doctor";
 import type { LaunchInfo } from "./launcher";
+import { machinesCommand } from "./machines-command";
 import { networkCommand, passwordCommand } from "./network-command";
 import { openBrowser } from "./open-browser";
 import { handOver } from "./restart";
+import { runnerCommand } from "./runner-command";
 import { findRunningServer } from "./running";
 import { stop } from "./stop";
 import { updateCommand } from "./update-command";
@@ -48,6 +52,25 @@ export async function runCommand(args: string[], parsed: ParsedCli): Promise<num
   if (command === "stop") return stop(home);
   if (command === "update") return updateCommand(home, { rollback: values.rollback, launch });
   if (command === "password") return passwordCommand(home, { generate: values.generate });
+  if (command === "runner") {
+    return runnerCommand(home, {
+      detach: values.detach,
+      backend: values.backend,
+      fake: values.fake,
+    });
+  }
+  if (command === "connect") {
+    return connectCommand({
+      home: connectHome(values.home),
+      server: positionals[1],
+      code: values.code,
+      detach: values.detach,
+      stop: values.stop,
+    });
+  }
+  if (command === "machines") {
+    return machinesCommand(home, positionals.slice(1), { name: values.name, force: values.force });
+  }
   if (command === "network")
     return networkCommand(home, positionals[1], {
       loopbackOnly: values["loopback-only"],

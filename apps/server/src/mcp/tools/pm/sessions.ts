@@ -4,12 +4,14 @@ import {
   messageFrom,
   ProviderId,
   ReasoningEffort,
+  SessionPlacement,
   SessionStatus,
   StartedBy,
   StartSessionRequest,
   WorkKey,
 } from "@codeden/contracts";
 import { z } from "zod";
+import type { AppServices } from "../../../services/container";
 import { defineTool, ToolError } from "../../define";
 import { agentSessionOf, compactSession, compactWork, projectFor } from "../shared/helpers";
 import { describeProviderParam, fallbackProvider } from "../shared/provider-choices";
@@ -48,6 +50,7 @@ export const startSession = defineTool({
   description:
     "Start an agent session in its own worktree to do one piece of work. Always pass a workKey (issue:<n>, pr:<n>, automation:<name> or request:<slug>) and a one-line purpose; add scope (paths or area) when known. For an issue whose author isn't trusted (not a trusted author, not CodeDen's GitHub account, no write access), it starts only in a turn the user's own message started; otherwise it is refused and you put the issue in the user's inbox with report_triage (decision 'ready'). If matching work is already running or queued, nothing starts and the result is 'conflict' with the existing work: choose the resolution yourself and call again with conflict = {resolution: 'wait'} (queue behind it), {resolution: 'skip'} (it is the same work), {resolution: 'join', sessionId} (send the prompt to the existing session) or {resolution: 'force', reason}.",
   roles: ["pm"],
+  authority: { need: "operator", action: "start sessions" },
   scope: "project",
   alwaysLoad: true,
   // The loaded providers and whether each is ready, as of this listing.
@@ -74,6 +77,9 @@ export const startSession = defineTool({
     provider: ProviderId.optional(),
     model: z.string().min(1).optional(),
     effort: ReasoningEffort.optional(),
+    machine: SessionPlacement.optional().describe(
+      "Where the session runs: 'home' (this computer), 'auto' (Home or the machine with the most free capacity; Home when none qualifies, with a note on the session) or a machine's name from Settings > Machines. Leave it out to use the project's setting. A machine needs a GitHub project and the provider signed in there",
+    ),
     conflict: ConflictDecision.optional(),
     reportTo: z
       .enum(["orchestrator"])
@@ -105,12 +111,18 @@ export const startSession = defineTool({
       provider,
       model: input.model,
       effort: input.effort,
+      machine: input.machine,
       purpose: input.purpose,
       workKey: input.workKey ?? (input.issueNumber ? `issue:${input.issueNumber}` : undefined),
       scope: input.scope,
       title: input.title,
       issue,
-      startedBy: { kind: "pm", id: sessionId ?? undefined, reportTo: input.reportTo },
+      startedBy: {
+        kind: "pm",
+        id: sessionId ?? undefined,
+        reportTo: input.reportTo,
+        ...(input.reportTo && reportToMembers(services, sessionId)),
+      },
       parentSessionId: sessionId ?? undefined,
       // The brief is the session's first message: no sender line, but the transcript shows
       // it as the PM's.
@@ -148,6 +160,7 @@ export const messageSession = defineTool({
   description:
     "Send a message to one of this project's agent sessions (follow-up, correction, answer). Queued while it is busy unless whenBusy is 'steer' (inject into the running turn).",
   roles: ["pm"],
+  authority: { need: "operator", action: "message sessions" },
   scope: "project",
   alwaysLoad: true,
   input: z.object({
@@ -178,6 +191,7 @@ export const stopSession = defineTool({
   description:
     "Stop one of this project's agent sessions (it can be resumed later). Use it for duplicates, runaway work or work that is no longer wanted; say why in reason. For a factory builder or reviewer, the reason (held, superseded, waiting on another PR) stops its item as your call: it never counts towards the factory's pause after failures in a row, and factory_retry_item runs it again later. Without a reason it counts as a failed item. To keep an issue from being started at all, use factory_hold_issue.",
   roles: ["pm"],
+  authority: { need: "operator", action: "stop sessions" },
   scope: "project",
   alwaysLoad: true,
   input: z.object({
@@ -207,3 +221,15 @@ export const stopSession = defineTool({
     };
   },
 });
+
+/**
+ * Who hears about work the PM starts for the orchestrator (§D.3): the people whose orchestrators'
+ * messages are in the PM's turn. None (an older turn): the project's Owners.
+ */
+function reportToMembers(
+  services: AppServices,
+  sessionId: string | null,
+): { reportToMembers: string[] } | undefined {
+  const people = sessionId ? services.orchestration.authority.of(sessionId).orchestrators : [];
+  return people.length > 0 ? { reportToMembers: people } : undefined;
+}

@@ -9,6 +9,7 @@ import {
   projects,
   sessions,
 } from "../db/schema";
+import { applyMemberProjection } from "../members/projection";
 import { applyFactoryProjection } from "../services/factory/projection";
 import {
   applyGithubProjection,
@@ -137,6 +138,11 @@ export function applyProjection(tx: Tx, e: EventEnvelope): NewEvent[] {
     case "runner.connected":
     case "runner.disconnected":
       applyRunnerProjection(tx, e);
+      return [];
+    case "member.created":
+    case "member.updated":
+    case "member.deleted":
+      applyMemberProjection(tx, e);
       return [];
     case "settings.updated":
     case "automation.updated":

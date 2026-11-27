@@ -122,8 +122,8 @@ export class OpenCodePolicy {
     return {
       kind: "deny",
       message: this.readOnly
-        ? "This session is read-only: CodeDen's own home and credential files are off limits. Act through CodeDen tools instead."
-        : "This session has read-only permissions: CodeDen's own home and credential files are off limits. Report what you found instead.",
+        ? "This session is read-only: CodeDen's own home, agent CLIs' transcripts and credential files are off limits. Act through CodeDen tools instead."
+        : "This session has read-only permissions: CodeDen's own home, agent CLIs' transcripts and credential files are off limits. Report what you found instead.",
     };
   }
 

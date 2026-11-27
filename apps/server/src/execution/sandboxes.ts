@@ -140,7 +140,7 @@ export class SandboxService {
 
   /** Refuse switching `project` to `backend` when it can't use it, with the reason (PATCH). */
   async assertUsable(project: Project, backend: ProjectExecutionBackend): Promise<void> {
-    if (backend === "local" || project.execution.backend === backend) return;
+    if (backend !== "docker" || project.execution.backend === backend) return;
     const status = await this.dockerStatus(project, { refresh: true });
     if (!status.available) {
       const reason = [status.reason, status.fix].filter(Boolean).join(". ");
@@ -318,7 +318,7 @@ export class SandboxService {
   recordFor(session: Pick<Session, "runnerId">): RunnerRecord | undefined {
     if (!session.runnerId) return undefined;
     const record = findRunnerByRunnerId(this.deps.db, session.runnerId);
-    if (!record || record.home || record.backend === "local" || record.state === "deleted") {
+    if (!record || record.home || record.backend !== "docker" || record.state === "deleted") {
       return undefined;
     }
     return record.sandboxRef ? record : undefined;

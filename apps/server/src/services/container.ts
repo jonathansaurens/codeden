@@ -1,13 +1,20 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { messageFrom, type Session } from "@codeden/contracts";
+import { DEFAULT_MACHINE_WEIGHT, messageFrom, type Session } from "@codeden/contracts";
 import { createImageEngineRegistry, type ImageEngineRegistry } from "@codeden/providers";
 import type { Db } from "../db/client";
+import { findRunnerByRunnerId } from "../events/runner-projection";
 import type { EventStore } from "../events/store";
+import type { ComputerService } from "../execution/connected/computers";
+import { AutoPlacement } from "../execution/placement/auto";
 import { noSandboxes, type SandboxService } from "../execution/sandboxes";
+import type { MachineService } from "../execution/ssh/machines";
 import { ToolRegistry } from "../mcp/registry";
 import { McpTokenStore } from "../mcp/tokens";
 import { allTools } from "../mcp/tools";
+import { InviteService } from "../members/invites";
+import { MemberPreferences } from "../members/preferences";
+import { MemberService } from "../members/service";
 import type { HomePaths } from "../paths";
 import type { SettingsStore } from "../settings-store";
 import { AgentConfigService } from "./agent-config/agent-config-service";
@@ -32,6 +39,7 @@ import {
   OrchestrationService,
 } from "./orchestration/orchestration-service";
 import type { AutomationPort, GithubPort } from "./orchestration/ports";
+import { RolePlacement } from "./orchestration/role-placement";
 import { ProjectService } from "./projects/project-service";
 import { ProjectRedetector } from "./projects/redetector";
 import { ProviderHistoryService } from "./providers/history";
@@ -87,6 +95,10 @@ export interface ServicesOptions {
    * the server next to its runner hub. Without it every project runs locally.
    */
   sandboxes?: SandboxService;
+  /** Machines over SSH (`docs/machines-teams-and-agents.md` Part A); made by the server. */
+  machines?: MachineService;
+  /** People's own computers, linked in with `codeden connect` (§D.5); made by the server. */
+  computers?: ComputerService;
   secrets: SecretStore;
   exec?: Exec;
   /** Finds claude, codex and gh for the setup checks (tests fake it with `exec`). */
@@ -145,6 +157,10 @@ export interface AppServices {
   runners: RunnerRouter;
   /** Execution backends and the sandboxes of projects whose sessions run in containers. */
   sandboxes: SandboxService;
+  /** Machines over SSH; absent in services made without a runner hub. */
+  machines?: MachineService;
+  /** People's own computers (§D.5); absent in services made without a runner hub. */
+  computers?: ComputerService;
   secrets: SecretStore;
   utility: UtilityService;
   projects: ProjectService;
@@ -183,6 +199,14 @@ export interface AppServices {
   agentConfig: AgentConfigService;
   /** Orchestrator and PM sessions, digests, notices, conflicts (§8). */
   orchestration: OrchestrationService;
+  /** Where the orchestrators and PMs run (§D.4). */
+  rolePlacement: RolePlacement;
+  /** Messages waiting for their session's next turn. */
+  outbox: Outbox;
+  /** Starts sessions on their runner (and the options they open with). */
+  launcher: SessionLauncher;
+  /** Each person's own preferences (their orchestrator's "Runs on"). */
+  preferences: MemberPreferences;
   /** GitHub connection, issue/PR sync, PRs and evidence (§9). */
   github: GithubService;
   /** Usage and cost reports, budgets and rate limits (§12.6). */
@@ -206,6 +230,10 @@ export interface AppServices {
   /** Hides CodeDen's conversations from providers' own apps (Settings → Providers). */
   providerHistory: ProviderHistoryService;
   userHome: string;
+  /** People and connected agents who may use this server (Part B, C), the first owner first. */
+  members: MemberService;
+  /** Owners' invites to join (§B.2). */
+  invites: InviteService;
   /** A session's files, on the server's disk or its runner's (`docs/remote-runners.md` §10). */
   workspaceFs(session: Session): WorkspaceFs;
 }
@@ -241,6 +269,7 @@ export function createServices(opts: ServicesOptions): AppServices {
     },
   });
   let sessions: SessionService | undefined;
+  const members = new MemberService({ db: opts.db, store: opts.store });
   const inbox = new InboxService(opts.db, opts.store, () => (sessionId, requestId, response) => {
     if (!sessions) throw new Error("Session service not ready");
     return sessions.respond(sessionId, { requestId, response });
@@ -275,6 +304,7 @@ export function createServices(opts: ServicesOptions): AppServices {
     log: opts.log,
   });
   sessions = new SessionService({
+    memberName: (id) => members.find(id)?.name ?? "a former member",
     repo: sessionRepo,
     projects,
     runner: opts.runner,
@@ -288,6 +318,18 @@ export function createServices(opts: ServicesOptions): AppServices {
     tokens: mcpTokens,
     utility,
     sandboxes,
+    machines: opts.machines,
+    autoPlacement:
+      opts.machines &&
+      new AutoPlacement({
+        machines: opts.machines,
+        home: opts.runner,
+        homeWeight: () => opts.machines?.homeWeight() ?? DEFAULT_MACHINE_WEIGHT,
+        // Read when a start is placed: the factory is made further down.
+        homeReady: (provider) => factory.providerRunnable(provider).runnable,
+        capacity: opts.machines.capacity,
+        log: opts.log,
+      }),
     projectChecks: redetector,
   });
   const checksLoop = new ChecksLoop({
@@ -382,9 +424,22 @@ export function createServices(opts: ServicesOptions): AppServices {
     billing: async () => (setup.lastStatus ? billingFromSetup(setup.lastStatus) : {}),
     log: opts.log,
   });
+  const preferences = new MemberPreferences(opts.db);
+  const rolePlacement = new RolePlacement({
+    machines: opts.machines,
+    projects,
+    preferences,
+    sessions,
+    runner: opts.runner,
+    recordOfRunner: (runnerId) => findRunnerByRunnerId(opts.db, runnerId),
+    log: opts.log,
+  });
   const orchestration = new OrchestrationService({
+    placement: rolePlacement,
+    preferences,
     db: opts.db,
     store: opts.store,
+    members,
     repo: sessionRepo,
     sessions,
     projects,
@@ -452,6 +507,8 @@ export function createServices(opts: ServicesOptions): AppServices {
     runner: opts.runner,
     runners,
     sandboxes,
+    machines: opts.machines,
+    computers: opts.computers,
     secrets: opts.secrets,
     utility,
     projects,
@@ -559,6 +616,10 @@ export function createServices(opts: ServicesOptions): AppServices {
     }),
     github,
     orchestration,
+    rolePlacement,
+    preferences,
+    outbox,
+    launcher,
     automations,
     userHome,
     questions,
@@ -572,6 +633,8 @@ export function createServices(opts: ServicesOptions): AppServices {
       git: gitBroker,
     }),
     tools: undefined as unknown as ToolRegistry,
+    members,
+    invites: new InviteService(opts.db, members),
     workspaceFs: (session) =>
       workspaceFsFor({ runner: opts.runner, runners, home: opts.paths.home }, session),
   };

@@ -10,9 +10,15 @@ const MAX_IN_FLIGHT = 1;
 const WINDOW_MS = 15 * 60_000;
 const LOCKOUT_MS = 15 * 60_000;
 
+interface Failure {
+  at: number;
+  /** What was tried (a member's name), so a success clears only its own; null: nothing to clear. */
+  target: string | null;
+}
+
 interface AddressRecord {
-  /** Times of failures inside the window, oldest first. */
-  failures: number[];
+  /** Failures inside the window, oldest first. */
+  failures: Failure[];
   lockedUntil: number;
 }
 
@@ -23,8 +29,11 @@ export type SignInGate =
 /**
  * Sign-in throttling per client address (§15.1). Only failed attempts count. After three
  * failures each attempt waits 1 s, 2 s, 4 s … up to 30 s after the last failure; ten failures
- * within 15 minutes lock the address out for 15 minutes. Other addresses are unaffected, and a
- * successful sign-in clears the address. Kept in memory: a restart forgets it.
+ * within 15 minutes lock the address out for 15 minutes. Other addresses are unaffected. A
+ * successful sign-in clears only the address's failures for the same target (the member it
+ * signed in as), so signing in to one's own account never resets guessing at someone else's;
+ * failures with no target (invite secrets, agent tokens) only age out. Kept in memory: a
+ * restart forgets it.
  */
 export class SignInLimiter {
   private readonly records = new Map<string, AddressRecord>();
@@ -61,7 +70,7 @@ export class SignInLimiter {
     if (record.lockedUntil > now) {
       return { allowed: false, reason: "locked_out", retryAfterMs: record.lockedUntil - now };
     }
-    const last = record.failures.at(-1);
+    const last = record.failures.at(-1)?.at;
     const wait =
       last === undefined
         ? 0
@@ -93,11 +102,11 @@ export class SignInLimiter {
     else this.inFlight.set(address, left);
   }
 
-  /** Record a wrong password from `address`. */
-  fail(address: string): void {
+  /** Record a wrong password from `address`, for `target` (who it tried to sign in as). */
+  fail(address: string, target: string | null = null): void {
     const now = this.now();
     const record = this.prune(address) ?? { failures: [], lockedUntil: 0 };
-    record.failures.push(now);
+    record.failures.push({ at: now, target });
     if (record.failures.length >= this.lockoutFailures) {
       record.lockedUntil = now + LOCKOUT_MS;
       record.failures = [];
@@ -105,9 +114,14 @@ export class SignInLimiter {
     this.records.set(address, record);
   }
 
-  /** A correct password: forget the address's failures. */
-  succeed(address: string): void {
-    this.records.delete(address);
+  /** A correct password for `target`: forget the address's failures for that target only. */
+  succeed(address: string, target: string): void {
+    const record = this.prune(address);
+    if (!record) return;
+    record.failures = record.failures.filter((f) => f.target !== target);
+    if (record.failures.length === 0 && record.lockedUntil <= this.now()) {
+      this.records.delete(address);
+    }
   }
 
   /** Drop failures older than the window; returns the record if anything is left. */
@@ -115,7 +129,7 @@ export class SignInLimiter {
     const record = this.records.get(address);
     if (!record) return undefined;
     const now = this.now();
-    record.failures = record.failures.filter((t) => now - t < WINDOW_MS);
+    record.failures = record.failures.filter((f) => now - f.at < WINDOW_MS);
     if (record.failures.length === 0 && record.lockedUntil <= now) {
       this.records.delete(address);
       return undefined;

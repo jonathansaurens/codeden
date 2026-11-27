@@ -460,6 +460,8 @@ export class FactoryService {
    * to normal. Runs after the ticks already queued, so a tick in flight never brings either back.
    */
   resume(projectId: string): Promise<FactoryLoop> {
+    // 404 for a project that doesn't exist, rather than a loop made up for it.
+    this.deps.projects.get(projectId);
     const next = this.serialize(projectId, "resume", () => {
       const loop = this.data.loopOrNew(projectId, this.ctx.now());
       // Work whose revert merged goes back to its builder, also when CI never said green.

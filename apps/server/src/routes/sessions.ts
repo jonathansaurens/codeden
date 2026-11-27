@@ -20,6 +20,7 @@ import {
   UpdateSessionRequest,
 } from "@codeden/contracts";
 import { Hono } from "hono";
+import { asAnswered, asPersonStart, clientInput } from "../members/attribution";
 import type { AppServices } from "../services/container";
 import { badRequest, notFound } from "../services/errors";
 import { clientItemRecord } from "../services/sessions/client-items";
@@ -36,7 +37,9 @@ export function sessionRoutes(s: AppServices, installToken: string) {
     new Hono()
       .get("/", queryOf(ListSessionsQuery), (c) => c.json(s.sessionRepo.list(c.req.valid("query"))))
       .post("/", jsonBody(StartSessionRequest), async (c) => {
-        const req = c.req.valid("json");
+        // An agent session the caller starts: the orchestrator and PMs start from their chats
+        // (§D.1), and who started it is the server's to say.
+        const req = asPersonStart(c.req.valid("json"));
         const result = await s.sessions.start(req);
         if (result.status !== "conflict") {
           // A new version of a request that had an open conflict: that conflict is done.
@@ -52,11 +55,14 @@ export function sessionRoutes(s: AppServices, installToken: string) {
       .patch("/:id", jsonBody(UpdateSessionRequest), async (c) =>
         c.json(await s.sessions.update(c.req.param("id"), c.req.valid("json"))),
       )
-      .post("/:id/messages", jsonBody(SendMessageRequest), async (c) =>
-        c.json(await s.sessions.send(c.req.param("id"), c.req.valid("json"))),
-      )
+      .post("/:id/messages", jsonBody(SendMessageRequest), async (c) => {
+        const req = c.req.valid("json");
+        return c.json(
+          await s.sessions.send(c.req.param("id"), { ...req, input: clientInput(req.input) }),
+        );
+      })
       .post("/:id/steer", jsonBody(SteerRequest), async (c) => {
-        await s.sessions.steer(c.req.param("id"), c.req.valid("json").input);
+        await s.sessions.steer(c.req.param("id"), clientInput(c.req.valid("json").input));
         return c.json({ ok: true as const });
       })
       .post("/:id/interrupt", async (c) => {
@@ -69,7 +75,9 @@ export function sessionRoutes(s: AppServices, installToken: string) {
         return c.json(body);
       })
       .post("/:id/respond", jsonBody(RespondRequest), async (c) => {
-        await s.sessions.respond(c.req.param("id"), c.req.valid("json"));
+        const req = c.req.valid("json");
+        // Who decided is the server's to say, never the client's.
+        await s.sessions.respond(c.req.param("id"), { ...req, response: asAnswered(req.response) });
         return c.json({ ok: true as const });
       })
       .post("/:id/stop", async (c) => c.json(await s.sessions.stop(c.req.param("id"))))

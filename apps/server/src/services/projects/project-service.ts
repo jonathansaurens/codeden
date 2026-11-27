@@ -149,8 +149,21 @@ export class ProjectService {
           "backend_unavailable",
         );
       }
-      next.execution = { backend: patch.execution.backend };
+      const { backend, machine } = patch.execution;
+      // Automatic suits any project: one that isn't on GitHub always lands on Home.
+      if (backend === "ssh" && machine !== "auto" && current.kind !== "github") {
+        throw badRequest(
+          "Machines need a GitHub project: each machine clones the repository from GitHub",
+          "machine_unavailable",
+        );
+      }
+      if (backend === "ssh" && !machine) {
+        throw badRequest("Choose the machine the project's sessions run on", "machine_required");
+      }
+      next.execution = backend === "ssh" ? { backend, machine } : { backend };
     }
+    // Moves the PM when it is idle, else after its turn (§D.4); checked by the route.
+    if (patch.pmRunsOn !== undefined) next.pmRunsOn = patch.pmRunsOn;
     this.deps.store.append([
       { type: "project.updated", sessionId: null, payload: { project: next } },
     ]);
@@ -291,6 +304,7 @@ export class ProjectService {
       ...rest,
       kind: "local",
       execution: { backend: "local" },
+      pmRunsOn: "server",
       updatedAt: new Date().toISOString(),
     };
     this.deps.store.append([
@@ -332,6 +346,7 @@ export class ProjectService {
       timezone: null,
       agentCiEnv: true,
       execution: { backend: "local" as const },
+      pmRunsOn: "server",
       pinned: false,
       sortOrder: this.nextSortOrder(),
       createdAt: now,

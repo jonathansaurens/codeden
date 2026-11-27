@@ -59,6 +59,7 @@ const status: NetworkStatus = {
       lastSeenAt: "2026-11-08T09:10:00.000Z",
       expiresAt: "2027-02-06T09:00:00.000Z",
       current: false,
+      memberId: "owner",
     },
   ],
   remote: false,
@@ -73,7 +74,8 @@ describe("network access contracts", () => {
     roundTrip(SetNetworkPasswordRequest, { generate: true });
     roundTrip(SetNetworkAccessRequest, { enabled: false });
     roundTrip(SignInRequest, { password: "x" });
-    roundTrip(AuthStatus, { remote: true, signedIn: false, networkEnabled: true });
+    roundTrip(AuthStatus, { remote: true, signedIn: false, networkEnabled: true, askName: false });
+    roundTrip(SignInRequest, { name: "Ana", password: "x" });
     roundTrip(SignInError, {
       error: { code: "rate_limited", message: "Wait 2 s", retryAfterSec: 2 },
     });
@@ -105,6 +107,7 @@ describe("network access contracts", () => {
         {
           id: "s1",
           tokenHash: "a".repeat(64),
+          memberId: "owner",
           label: "Safari",
           address: "192.168.1.30",
           addressViaProxy: true,

@@ -97,3 +97,50 @@ describe("session.start", () => {
     });
   });
 });
+
+describe("CodeDen's home for a session", () => {
+  /** A Fake provider that records the options each session is opened with. */
+  function recording() {
+    const inner = new FakeProvider();
+    const seen: SessionOptions[] = [];
+    const adapter: ProviderAdapter = {
+      id: inner.id,
+      displayName: inner.displayName,
+      detect: () => inner.detect(),
+      capabilities: () => inner.capabilities(),
+      models: () => inner.models(),
+      openSession: (opts) => {
+        seen.push(opts);
+        return inner.openSession(opts);
+      },
+    };
+    return { adapter, seen };
+  }
+
+  const start = (running: SessionHost, opts: SessionOptions) =>
+    running.start({
+      name: "session.start",
+      sessionId: opts.sessionId,
+      providerId: "fake",
+      options: opts,
+      checkpoints: false,
+    });
+
+  it("is this runner's own home when the server's is on another disk", async () => {
+    const fake = recording();
+    host = new SessionHost(new ProviderRegistry([fake.adapter]), () => {}, {
+      home: "/runner/home",
+    });
+    await start(host, options);
+    expect(fake.seen[0]?.codedenHome).toBe("/runner/home");
+  });
+
+  it("stays the one the server sent when it shares the disk", async () => {
+    const fake = recording();
+    host = new SessionHost(new ProviderRegistry([fake.adapter]), () => {}, {
+      home: "/runner/home",
+    });
+    await start(host, { ...options, sessionId: "s2", codedenHome: "/server/home" });
+    expect(fake.seen[0]?.codedenHome).toBe("/server/home");
+  });
+});

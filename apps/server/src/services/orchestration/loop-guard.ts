@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { MessageSender, Session, UserInput } from "@codeden/contracts";
 import type { SessionRepo } from "../sessions/repo";
 import type { NoticeStore } from "./notices";
+import { wakeKey } from "./role-keys";
 import { type WakeResult, WakeScheduler, type WakeSchedulerOptions } from "./wake-scheduler";
 
 /** Who wants a message to go from the orchestrator to a PM. */
@@ -10,6 +11,8 @@ export interface MessageOrigin {
   caller: "mcp" | "ui";
   /** The calling session (the orchestrator), when known. */
   sessionId: string | null;
+  /** The person the orchestrator acts for (§D.2): the PM's turn acts with their role. */
+  onBehalfOf?: string;
 }
 
 /** An orchestrator message the guard held back, and when it lets it go (epoch ms). */
@@ -131,7 +134,11 @@ export class LoopGuard {
       accepted: () => {
         this.record(session.id, fromUser);
         if (from !== "user") return;
-        this.clear(session.role === "pm" ? pmKey(session.projectId) : "orchestrator");
+        this.clear(
+          session.role === "pm"
+            ? pmKey(session.projectId)
+            : wakeKey("orchestrator", null, session.ownerMemberId),
+        );
       },
       failed: (mayHaveStarted) => this.record(session.id, mayHaveStarted ? false : previous),
     };
@@ -174,7 +181,7 @@ export class LoopGuard {
    * wake. Returns when the guard lets it go (any earlier wake of the PM takes it along, and a
    * PM in the middle of a turn gets it once the turn ends).
    */
-  hold(projectId: string, fromSessionId: string | null, text: string): number {
+  hold(projectId: string, fromSessionId: string | null, text: string, onBehalfOf?: string): number {
     this.deps.notices.create({
       id: `orchestrator.message:${randomUUID()}`,
       type: "orchestrator.message",
@@ -182,7 +189,7 @@ export class LoopGuard {
       target: "pm",
       sessionId: fromSessionId,
       title: "Message from the orchestrator",
-      data: { fromSessionId, text },
+      data: { fromSessionId, text, ...(onBehalfOf ? { onBehalfOf } : {}) },
     });
     const key = pmKey(projectId);
     this.relays.request(key);

@@ -144,4 +144,5 @@ A project can override these for its own new sessions: open the project and its 
 - [GitHub](github.md): issues, PRs and evidence.
 - [Automations](automations.md): put routine work on a schedule.
 - [Phones, tablets and network access](remote-access.md): open CodeDen from your phone.
+- [Teams](teams.md) and [Connected agents](connected-agents.md): share a server with people and agents.
 - [Troubleshooting](troubleshooting.md) if anything doesn't start.

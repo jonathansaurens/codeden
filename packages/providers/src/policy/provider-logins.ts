@@ -58,6 +58,12 @@ function locations(ctx: PathContext, home: string): Record<string, string[]> {
   };
 }
 
+/** Each location variable's values for the context's home and environment (none without a home). */
+export function providerLocations(ctx: PathContext): Record<string, string[]> | undefined {
+  const home = homeOf(ctx);
+  return home ? locations(ctx, home) : undefined;
+}
+
 /**
  * The folders the agent CLIs keep their logins in, as absolute paths, for the context's home and
  * environment: both the default location and the one a variable moves it to.
@@ -90,7 +96,7 @@ const LOCATION_VAR = /^(?:\$\{(?:env:)?(\w+)\}|\$env:(\w+)|\$(\w+)|%(\w+)%)(?=$|
  * The paths `target` stands for once a location variable at its start is replaced: one per
  * value the variable may have (`locations`). Just `target` when it starts with none.
  */
-function expandLocation(target: string, ctx: PathContext): string[] {
+export function expandLocation(target: string, ctx: PathContext): string[] {
   const value = target.trim().replace(/^["']|["']$/g, "");
   const match = LOCATION_VAR.exec(value);
   const name = match?.slice(1).find(Boolean)?.toUpperCase();
