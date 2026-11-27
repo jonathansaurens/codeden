@@ -40,7 +40,7 @@ Off by default. When you turn it on:
 
 The desktop app can open a CodeDen server on another machine ([Other CodeDen servers](desktop.md#other-codeden-servers)). The rules for such a window:
 
-- **HTTPS only**, to an `https://host[:port]` address validated like a trusted origin; no http, no IP addresses, no way to accept a bad certificate. The app checks `/api/health` without credentials before saving.
+- **HTTPS**, to an `https://host[:port]` address validated like a trusted origin; no IP addresses, no way to accept a bad certificate. The one exception is plain **http** to an IP literal on a private network or VPN (10/8, 172.16/12, 192.168/16, 100.64/10, fd00::/8; never a host name or a public address): not encrypted, so only for networks you trust, and only those origins are treated as secure contexts (`--unsafely-treat-insecure-origin-as-secure`, set at start). The app checks `/api/health` without credentials before saving.
 - **The install token never leaves this machine.** The window signs in with the server's own password (trusted-origin rules), and the app polls `/api/activity` with that session's device cookie.
 - **Its own session partition per server**, persistent for the 90-day device session; cookies never cross between servers or into This Mac's window. Removing a server clears that partition.
 - **Navigation is locked to the server's origin**; other links open in the system browser. Notifications and the microphone are granted only to that origin.

@@ -7,7 +7,7 @@ import {
   type DesktopServer,
   type DesktopServerResult,
   LOCAL_SERVER_ID,
-  parseTrustedOrigin,
+  parseDesktopServerUrl,
 } from "@codeden/contracts";
 import { z } from "zod";
 import type { HealthCheck } from "./health";
@@ -27,13 +27,35 @@ export function partitionFor(id: string): string {
 }
 
 /**
- * A remote server's address (§17.1), checked like a trusted origin: `https://host[:port]`,
- * nothing else (no http, path, query, credentials or IP literal). Normalized to its origin.
+ * A remote server's address (§17.1), normalized to its origin: `https://host[:port]` checked
+ * like a trusted origin, or `http://` with a private or VPN IP literal (`parseDesktopServerUrl`).
  */
 export function parseServerUrl(
   input: string,
 ): { ok: true; origin: string } | { ok: false; problem: string } {
-  return parseTrustedOrigin(input);
+  return parseDesktopServerUrl(input);
+}
+
+/**
+ * The entries of `servers.json` that pass the rules of Add, without repeats; `[]` when the file
+ * is missing or unreadable. Also read before the app is ready, for the Chromium switches.
+ */
+export function readServerFile(file: string): StoredServer[] {
+  try {
+    const raw = StoredList.parse(JSON.parse(readFileSync(file, "utf8")));
+    const kept: StoredServer[] = [];
+    for (const item of raw.servers) {
+      const parsed = StoredServer.safeParse(item);
+      if (!parsed.success) continue;
+      // A hand-edited file gets the same address rules as Add.
+      const url = parseServerUrl(parsed.data.url);
+      if (!url.ok || kept.some((s) => s.id === parsed.data.id || s.url === url.origin)) continue;
+      kept.push({ ...parsed.data, url: url.origin });
+    }
+    return kept.slice(0, DESKTOP_SERVERS_MAX);
+  } catch {
+    return [];
+  }
 }
 
 /** A name for the list: trimmed, 1 to 40 characters, no control characters. */
@@ -61,7 +83,7 @@ export class ServerStore {
   private servers: StoredServer[];
 
   constructor(private readonly opts: ServerStoreOptions) {
-    this.servers = this.read();
+    this.servers = readServerFile(opts.file);
   }
 
   /** This Mac first, then the remote servers in the order they were added. */
@@ -129,24 +151,6 @@ export class ServerStore {
     this.servers = this.servers.filter((s) => s.id !== id);
     this.write();
     return true;
-  }
-
-  private read(): StoredServer[] {
-    try {
-      const raw = StoredList.parse(JSON.parse(readFileSync(this.opts.file, "utf8")));
-      const kept: StoredServer[] = [];
-      for (const item of raw.servers) {
-        const parsed = StoredServer.safeParse(item);
-        if (!parsed.success) continue;
-        // A hand-edited file gets the same address rules as Add.
-        const url = parseServerUrl(parsed.data.url);
-        if (!url.ok || kept.some((s) => s.id === parsed.data.id || s.url === url.origin)) continue;
-        kept.push({ ...parsed.data, url: url.origin });
-      }
-      return kept.slice(0, DESKTOP_SERVERS_MAX);
-    } catch {
-      return [];
-    }
   }
 
   private write(): void {

@@ -1,5 +1,5 @@
 import type { DesktopServer } from "@codeden/contracts";
-import { LOCAL_SERVER_ID } from "@codeden/contracts";
+import { LOCAL_SERVER_ID, parseDesktopServerUrl } from "@codeden/contracts";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -16,7 +16,7 @@ import { currentServerId, desktopServersApi, useDesktopServers } from "@/lib/des
 
 /**
  * The server manager (§17.1), in This Mac's desktop window: add another CodeDen server by its
- * https address, rename it, remove it. The app checks `/api/health` before saving; removing
+ * https address (or plain http on a private or VPN IP), rename it, remove it. The app checks `/api/health` before saving; removing
  * signs this device out of that server locally.
  */
 export function ServersDialog() {
@@ -150,6 +150,8 @@ function AddServerForm({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!api) return null;
+  const parsed = parseDesktopServerUrl(url);
+  const plainHttp = parsed.ok && parsed.origin.startsWith("http:");
   const submit = async () => {
     setBusy(true);
     setError(null);
@@ -185,6 +187,12 @@ function AddServerForm({ onDone }: { onDone: () => void }) {
         value={url}
         onChange={(e) => setUrl(e.target.value)}
       />
+      {plainHttp && (
+        <p className="text-xs text-muted-foreground">
+          Not encrypted: use plain http only on a private network or VPN you trust. Notifications
+          and dictation in its window work after CodeDen restarts once.
+        </p>
+      )}
       {error && (
         <p role="alert" className="text-xs text-destructive">
           {error}

@@ -7,18 +7,26 @@
  * `codeden://` link). The Chromium profile lives in `<home>/desktop`, so an isolated
  * `--home` is a fully separate app (tests rely on this).
  */
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { DEEP_LINK_SCHEME } from "@codeden/contracts";
 import { app } from "electron";
 import { parseLaunchArgs } from "./args";
 import { DesktopApp } from "./desktop-app";
 import { redactToken } from "./security";
 import { homeFiles } from "./server-plan";
+import { INSECURE_ORIGIN_SWITCH, insecureOriginSwitch } from "./servers/insecure-origins";
+import { readServerFile } from "./servers/store";
 
 const args = parseLaunchArgs(process.argv.slice(1));
 app.setName("CodeDen");
 app.setPath("userData", homeFiles(args.home).desktop);
 if (process.platform === "win32") app.setAppUserModelId("dev.codeden.app");
+// Saved servers on plain http over a private network or VPN get secure-context features
+// (notifications, the microphone) in their windows. Chromium reads this before ready only.
+const insecureOrigins = insecureOriginSwitch(
+  readServerFile(join(homeFiles(args.home).desktop, "servers.json")).map((s) => s.url),
+);
+if (insecureOrigins) app.commandLine.appendSwitch(INSECURE_ORIGIN_SWITCH, insecureOrigins);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
