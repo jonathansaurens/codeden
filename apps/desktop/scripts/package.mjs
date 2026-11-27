@@ -56,7 +56,7 @@ writeFileSync(
   `${JSON.stringify(
     {
       name: "codeden",
-      productName: "CodeDen",
+      productName: "CodeDen Fork",
       version: pkg.version,
       description: "A local-first harness for coding agents.",
       author: "Leon van Zyl",

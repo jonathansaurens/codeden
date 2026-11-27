@@ -18,9 +18,12 @@ import { INSECURE_ORIGIN_SWITCH, insecureOriginSwitch } from "./servers/insecure
 import { readServerFile } from "./servers/store";
 
 const args = parseLaunchArgs(process.argv.slice(1));
+// A fork build isn't signed, so it can't install updates itself: no background checks. Update
+// it with the fork's installer (scripts/fork/install-macos.sh), which fetches the latest release.
+process.env.CODEDEN_UPDATE_CHECK ??= "0";
 app.setName("CodeDen");
 app.setPath("userData", homeFiles(args.home).desktop);
-if (process.platform === "win32") app.setAppUserModelId("dev.codeden.app");
+if (process.platform === "win32") app.setAppUserModelId("dev.codeden.fork");
 // Saved servers on plain http over a private network or VPN get secure-context features
 // (notifications, the microphone) in their windows. Chromium reads this before ready only.
 const insecureOrigins = insecureOriginSwitch(

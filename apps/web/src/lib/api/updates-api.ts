@@ -53,7 +53,7 @@ export function mockUpdatesApi(): UpdatesApi {
     notes: async (version) => ({
       version,
       body: `### What's new in ${version}\n\n- Mock release notes.`,
-      url: `https://github.com/leonvanzyl/codeden/releases/tag/v${version}`,
+      url: `https://github.com/jonathansaurens/codeden/releases/tag/v${version}`,
     }),
     serverVersion: async () => CODEDEN_VERSION,
   };
